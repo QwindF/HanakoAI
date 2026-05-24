@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package `fun`.kirari.hanako.ui
 
 import android.widget.Toast
@@ -22,10 +24,12 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -41,6 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.data.AppSettings
 import `fun`.kirari.hanako.data.AssistantPreset
+import `fun`.kirari.hanako.data.previewPrompt
+import `fun`.kirari.hanako.data.AutomationSettings
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.ModelPurpose
 import `fun`.kirari.hanako.data.displayName
@@ -55,7 +61,8 @@ import `fun`.kirari.hanako.ui.components.SectionCard
 fun SettingsMenuScreen(
     onNavigateProvider: () -> Unit,
     onNavigateModel: () -> Unit,
-    onNavigateAssistant: () -> Unit
+    onNavigateAssistant: () -> Unit,
+    onNavigateAutomation: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -86,6 +93,61 @@ fun SettingsMenuScreen(
                 onClick = onNavigateAssistant
             )
         }
+        item {
+            SettingsEntryCard(
+                title = "自动模式",
+                subtitle = "开启完成通知；主页长按启动进入自动模式",
+                icon = Icons.Default.SmartToy,
+                onClick = onNavigateAutomation
+            )
+        }
+    }
+}
+
+@Composable
+fun AutomationSettingsScreen(
+    settings: AutomationSettings,
+    onToggleCompletionNotification: (Boolean) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            SectionCard(title = "自动模式") {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerLow
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                "开启/关闭通知",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "主页长按启动进入自动模式；完成后复制 [copy:标签] 到剪贴板，可选发送通知。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = settings.completionNotificationEnabled,
+                            onCheckedChange = onToggleCompletionNotification
+                        )
+                    }
+                }
+            }
+        }
+        item { Spacer(modifier = Modifier.height(80.dp)) }
     }
 }
 
@@ -295,7 +357,7 @@ fun AssistantSettingsScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            assistant.systemPrompt.replace('\n', ' '),
+                            assistant.previewPrompt().replace('\n', ' '),
                             maxLines = 2,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant

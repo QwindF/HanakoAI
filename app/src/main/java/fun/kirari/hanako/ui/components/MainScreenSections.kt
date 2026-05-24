@@ -6,8 +6,10 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,20 +55,21 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.data.AssistantPreset
+import `fun`.kirari.hanako.data.previewPrompt
 import `fun`.kirari.hanako.data.ProcessingRoute
 import kotlinx.coroutines.delay
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HeroSection(
     overlayEnabled: Boolean,
+    hasOverlayPermission: Boolean,
     route: ProcessingRoute,
     onSelectRoute: (ProcessingRoute) -> Unit,
     onOpenOverlayPermission: () -> Unit,
-    onToggleOverlay: (Boolean) -> Unit
+    onToggleOverlay: (Boolean) -> Unit,
+    onStartAutoMode: () -> Unit
 ) {
-    val context = LocalContext.current
-    val hasOverlayPermission = Settings.canDrawOverlays(context)
-
     Surface(
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
@@ -209,24 +212,40 @@ fun HeroSection(
                     val buttonTextColor = if (overlayEnabled) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.primaryContainer
 
                     Button(
-                        onClick = {
-                            onToggleOverlay(!overlayEnabled && hasOverlayPermission)
-                        },
+                        onClick = { },
                         modifier = Modifier.weight(1f),
                         enabled = hasOverlayPermission,
                         shape = RoundedCornerShape(16.dp),
+                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = buttonColor,
                             contentColor = buttonTextColor
                         )
                     ) {
-                        Icon(
-                            imageVector = if (overlayEnabled) Icons.Default.Stop else Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text(if (overlayEnabled) "关闭" else "启动", fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .combinedClickable(
+                                    onClick = {
+                                        onToggleOverlay(!overlayEnabled && hasOverlayPermission)
+                                    },
+                                    onLongClick = {
+                                        if (!overlayEnabled && hasOverlayPermission) {
+                                            onStartAutoMode()
+                                        }
+                                    }
+                                ),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (overlayEnabled) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Text(if (overlayEnabled) "关闭" else "启动", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
 
@@ -260,7 +279,13 @@ fun HeroSection(
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && !overlayEnabled) {
                     Text(
-                        "💡 提示：Android 14+ 系统在首次智能识屏时会弹出截屏授权，请选择允许。",
+                        "提示：点击启动进入普通模式，长按启动进入自动模式；Android 14+ 首次会弹出截屏授权。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
+                    )
+                } else if (!overlayEnabled) {
+                    Text(
+                        "点击启动进入普通模式，长按启动进入自动模式。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.5f)
                     )
@@ -397,10 +422,24 @@ fun AssistantSelector(
                 label = "助手名称"
             )
             DraftOutlinedTextField(
-                fieldKey = "${assistant.id}:systemPrompt",
-                value = assistant.systemPrompt,
-                onCommit = { onChange(assistant.copy(systemPrompt = it)) },
-                label = "角色设定与提示词",
+                fieldKey = "${assistant.id}:ocrPrompt",
+                value = assistant.ocrPrompt,
+                onCommit = { onChange(assistant.copy(ocrPrompt = it)) },
+                label = "OCR 模型提示词",
+                minLines = 4
+            )
+            DraftOutlinedTextField(
+                fieldKey = "${assistant.id}:textPrompt",
+                value = assistant.textPrompt,
+                onCommit = { onChange(assistant.copy(textPrompt = it)) },
+                label = "LLM 提示词",
+                minLines = 5
+            )
+            DraftOutlinedTextField(
+                fieldKey = "${assistant.id}:visionPrompt",
+                value = assistant.visionPrompt,
+                onCommit = { onChange(assistant.copy(visionPrompt = it)) },
+                label = "多模态模型提示词",
                 minLines = 5
             )
         }

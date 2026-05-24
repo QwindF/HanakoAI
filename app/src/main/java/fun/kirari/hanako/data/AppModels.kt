@@ -77,7 +77,9 @@ fun ModelProviderConfig.modelsRequestUrl(): String = "${baseUrl.trimEnd('/')}${k
 data class AssistantPreset(
     val id: String = UUID.randomUUID().toString(),
     val name: String,
-    val systemPrompt: String
+    val ocrPrompt: String,
+    val textPrompt: String,
+    val visionPrompt: String
 )
 
 @Serializable
@@ -87,12 +89,18 @@ enum class ProcessingRoute {
 }
 
 @Serializable
+data class AutomationSettings(
+    val completionNotificationEnabled: Boolean = true
+)
+
+@Serializable
 data class AppSettings(
     val providers: List<ModelProviderConfig> = listOf(defaultProvider()),
     val selectedProviderId: String? = providers.firstOrNull()?.id,
     val assistants: List<AssistantPreset> = defaultAssistants(),
     val selectedAssistantId: String? = assistants.firstOrNull()?.id,
     val processingRoute: ProcessingRoute = ProcessingRoute.OCR_THEN_LLM,
+    val automation: AutomationSettings = AutomationSettings(),
     val textModelSelection: ModelSelection = ModelSelection(),
     val visionModelSelection: ModelSelection = ModelSelection(),
     val ocrModelSelection: ModelSelection = ModelSelection(),
@@ -118,14 +126,26 @@ fun defaultAssistants(): List<AssistantPreset> = listOf(
     defaultAssistant(),
     AssistantPreset(
         name = "题目解答助手",
-        systemPrompt = "你是题目解答助手。请先识别题目内容，再给出解题思路、关键知识点和答案。"
+        ocrPrompt = "请准确提取图片中的题目、选项、公式和注释，尽量保持原有结构，不要解释。",
+        textPrompt = "你是题目解答助手。请先识别题目内容，再给出解题思路、关键知识点和答案。",
+        visionPrompt = "你是题目解答助手。请直接阅读图片中的题目内容，给出解题思路、关键知识点和答案。"
     )
 )
 
 fun defaultAssistant(): AssistantPreset = AssistantPreset(
     name = "聊天记录总结助手",
-    systemPrompt = "你是聊天记录总结助手。请提炼重点、待办、情绪倾向，并用简洁中文输出。"
+    ocrPrompt = "请准确提取图片中的全部文字，按原有结构输出，不要解释。",
+    textPrompt = "你是聊天记录总结助手。请提炼重点、待办、情绪倾向，并用简洁中文输出。",
+    visionPrompt = "你是聊天记录总结助手。请直接阅读图片内容，提炼重点、待办、情绪倾向，并用简洁中文输出。"
 )
+
+fun AssistantPreset.previewPrompt(): String {
+    return textPrompt.ifBlank {
+        visionPrompt.ifBlank {
+            ocrPrompt
+        }
+    }
+}
 
 val ModelPurpose.displayName: String
     get() = when (this) {

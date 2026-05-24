@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import `fun`.kirari.hanako.data.AppSettings
 import `fun`.kirari.hanako.data.AssistantPreset
+import `fun`.kirari.hanako.data.AutomationSettings
 import `fun`.kirari.hanako.data.ModelPurpose
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.ModelSelection
@@ -103,7 +104,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val assistant = AssistantPreset(
                     id = UUID.randomUUID().toString(),
                     name = "自定义助手 ${current.assistants.size + 1}",
-                    systemPrompt = "你是一个乐于助人的中文助手。"
+                    ocrPrompt = "请准确提取图片中的全部文字，按原有结构输出，不要解释。",
+                    textPrompt = "你是一个乐于助人的中文助手。",
+                    visionPrompt = "你是一个乐于助人的中文助手。请直接根据图片内容完成用户任务。"
                 )
                 current.copy(
                     assistants = current.assistants + assistant,
@@ -147,6 +150,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     ModelPurpose.VISION -> current.copy(visionModelSelection = selection)
                     ModelPurpose.OCR -> current.copy(ocrModelSelection = selection)
                 }
+            }
+        }
+    }
+
+    fun updateAutomationSettings(transform: (AutomationSettings) -> AutomationSettings) {
+        viewModelScope.launch {
+            store.update { current ->
+                current.copy(automation = transform(current.automation))
             }
         }
     }

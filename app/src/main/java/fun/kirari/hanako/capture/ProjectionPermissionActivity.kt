@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import `fun`.kirari.hanako.overlay.OverlayLaunchMode
 import `fun`.kirari.hanako.overlay.OverlayService
 
 class ProjectionPermissionActivity : ComponentActivity() {
@@ -23,6 +24,11 @@ class ProjectionPermissionActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
+            val launchMode = remember {
+                intent.getStringExtra(EXTRA_LAUNCH_MODE)
+                    ?.let { runCatching { OverlayLaunchMode.valueOf(it) }.getOrNull() }
+                    ?: OverlayLaunchMode.NORMAL
+            }
             val projectionManager = remember {
                 getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             }
@@ -37,7 +43,11 @@ class ProjectionPermissionActivity : ComponentActivity() {
                             putExtra(MediaProjectionForegroundService.EXTRA_RESULT_DATA, result.data)
                         }
                     )
-                    startService(Intent(this, OverlayService::class.java))
+                    startService(
+                        Intent(this, OverlayService::class.java).apply {
+                            putExtra(EXTRA_LAUNCH_MODE, launchMode.name)
+                        }
+                    )
                     setResult(Activity.RESULT_OK)
                 } else {
                     stopService(Intent(this, MediaProjectionForegroundService::class.java))
@@ -57,5 +67,9 @@ class ProjectionPermissionActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_LAUNCH_MODE = "extra_launch_mode"
     }
 }

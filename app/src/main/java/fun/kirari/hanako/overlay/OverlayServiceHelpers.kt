@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.NotificationCompat
 import `fun`.kirari.hanako.MainActivity
 import `fun`.kirari.hanako.R
@@ -28,6 +29,29 @@ internal fun OverlayService.buildNotification(): Notification {
         .setContentIntent(openIntent)
         .setOngoing(true)
         .build()
+}
+
+internal fun OverlayService.notifyAutomationCompleted(label: String?) {
+    val content = label?.take(32)?.let { "已复制：$it" } ?: "自动模式已完成并复制到剪贴板"
+    val notification = NotificationCompat.Builder(this, OverlayService.AUTOMATION_CHANNEL_ID)
+        .setContentTitle(getString(R.string.overlay_automation_done_title))
+        .setContentText(content)
+        .setSmallIcon(R.mipmap.ic_launcher_round)
+        .setAutoCancel(true)
+        .setContentIntent(
+            PendingIntent.getActivity(
+                this,
+                1,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+        )
+        .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+        .build()
+    NotificationManagerCompat.from(this).notify(
+        OverlayService.AUTOMATION_COMPLETE_NOTIFICATION_ID,
+        notification
+    )
 }
 
 internal fun OverlayService.openMainActivity() {
@@ -60,10 +84,18 @@ internal fun OverlayService.vibrateShort() {
 
 internal fun OverlayService.createNotificationChannel() {
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-    val channel = NotificationChannel(
+    val overlayChannel = NotificationChannel(
         OverlayService.CHANNEL_ID,
         "Hanako Overlay",
         NotificationManager.IMPORTANCE_LOW
     )
-    getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+    val automationChannel = NotificationChannel(
+        OverlayService.AUTOMATION_CHANNEL_ID,
+        "Hanako Automation",
+        NotificationManager.IMPORTANCE_DEFAULT
+    )
+    getSystemService(NotificationManager::class.java).apply {
+        createNotificationChannel(overlayChannel)
+        createNotificationChannel(automationChannel)
+    }
 }

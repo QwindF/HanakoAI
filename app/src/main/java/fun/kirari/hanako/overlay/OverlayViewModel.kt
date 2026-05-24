@@ -40,7 +40,22 @@ internal class OverlayViewModel(
         }
     }
 
+    fun setLaunchMode(mode: OverlayLaunchMode) {
+        _uiState.update { state ->
+            state.copy(
+                launchMode = mode,
+                autoRunState = if (mode == OverlayLaunchMode.NORMAL) AutoRunState.IDLE else state.autoRunState,
+                autoCopiedLabel = if (mode == OverlayLaunchMode.NORMAL) null else state.autoCopiedLabel,
+                error = null
+            )
+        }
+    }
+
     fun openCropSheet() {
+        if (_uiState.value.launchMode == OverlayLaunchMode.AUTO) {
+            processFullScreen()
+            return
+        }
         viewModelScope.launch {
             runCatching {
                 withContext(Dispatchers.IO) { ProjectionSessionManager.captureLatestBitmap() }
@@ -55,7 +70,9 @@ internal class OverlayViewModel(
                         error = null,
                         working = false,
                         sheetVisible = true,
-                        sheetMode = OverlaySheetMode.CROP
+                        sheetMode = OverlaySheetMode.CROP,
+                        autoRunState = AutoRunState.IDLE,
+                        autoCopiedLabel = null
                     )
                 }
             }.onFailure { error ->
@@ -65,6 +82,37 @@ internal class OverlayViewModel(
                         error = error.message ?: "截屏失败",
                         sheetVisible = true,
                         sheetMode = OverlaySheetMode.CROP
+                    )
+                }
+            }
+        }
+    }
+
+    fun processFullScreen() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    liveOcrText = "",
+                    liveAnswerText = "",
+                    result = null,
+                    error = null,
+                    working = true,
+                    sheetVisible = false,
+                    autoRunState = AutoRunState.RUNNING,
+                    autoCopiedLabel = null
+                )
+            }
+            runCatching {
+                withContext(Dispatchers.IO) { ProjectionSessionManager.captureLatestBitmap() }
+            }.onSuccess { bitmap ->
+                processAutoBitmap(bitmap)
+            }.onFailure { error ->
+                Log.e("OverlayService", "processFullScreen failed", error)
+                _uiState.update {
+                    it.copy(
+                        working = false,
+                        autoRunState = AutoRunState.IDLE,
+                        error = error.message ?: "截屏失败"
                     )
                 }
             }
@@ -164,7 +212,9 @@ internal class OverlayViewModel(
                         working = false,
                         result = result,
                         liveOcrText = result.extractedText,
-                        liveAnswerText = result.answer
+                        liveAnswerText = result.answer,
+                        autoRunState = AutoRunState.IDLE,
+                        autoCopiedLabel = null
                     )
                 }
             }.onFailure { error ->
@@ -172,6 +222,7 @@ internal class OverlayViewModel(
                 _uiState.update {
                     it.copy(
                         working = false,
+                        autoRunState = AutoRunState.IDLE,
                         error = error.message ?: "处理失败"
                     )
                 }
@@ -181,6 +232,16 @@ internal class OverlayViewModel(
 
     fun closeSheet() {
         _uiState.update { it.copy(sheetVisible = false, error = null) }
+    }
+
+    fun consumeAutoCompletedState() {
+        _uiState.update { state ->
+            if (state.launchMode == OverlayLaunchMode.AUTO && state.autoRunState == AutoRunState.COMPLETED) {
+                state.copy(autoRunState = AutoRunState.IDLE)
+            } else {
+                state
+            }
+        }
     }
 
     fun selectAssistant(assistantId: String) {
@@ -243,6 +304,126 @@ internal class OverlayViewModel(
         val trimmedProvider = providerName?.trim().orEmpty()
         if (trimmedModel.isBlank()) return ""
         return if (trimmedProvider.isBlank()) trimmedModel else "$trimmedModel（$trimmedProvider）"
+    }
+
+    private suspend fun processAutoBitmap(bitmap: Bitmap) {
+        val state = _uiState.value
+        val assistant = state.settings.assistants.firstOrNull { it.id == state.settings.selectedAssistantId }
+            ?: error("请先配置助手")
+        val ocrProvider = state.settings.resolveModelProvider(ModelPurpose.OCR)
+        val ocrModel = state.settings.resolveModelName(ModelPurpose.OCR)
+        val textProvider = state.settings.resolveModelProvider(ModelPurpose.TEXT)
+        val textModel = state.settings.resolveModelName(ModelPurpose.TEXT)
+        val visionProvider = state.settings.resolveModelProvider(ModelPurpose.VISION)
+        val visionModel = state.settings.resolveModelName(ModelPurpose.VISION)
+
+        runCatching {
+            val result = when (state.settings.processingRoute) {
+                ProcessingRoute.OCR_THEN_LLM -> {
+                    if (ocrProvider == null || ocrModel.isBlank() || textProvider == null || textModel.isBlank()) {
+                        error("请先在模型设置中配置 OCR 和文本模型")
+                    }
+                    val (ocrText, rawAnswer) = gateway.streamOcrThenAutoCopy(
+                        ocrProvider = ocrProvider,
+                        ocrModel = ocrModel,
+                        textProvider = textProvider,
+                        textModel = textModel,
+                        assistant = assistant,
+                        bitmap = bitmap,
+                        onOcrDelta = { delta ->
+                            _uiState.update { current ->
+                                current.copy(liveOcrText = current.liveOcrText + delta)
+                            }
+                        },
+                        onAnswerDelta = { delta ->
+                            _uiState.update { current ->
+                                current.copy(liveAnswerText = current.liveAnswerText + delta)
+                            }
+                        }
+                    )
+                    ProcessingResult(
+                        assistantName = assistant.name,
+                        route = ProcessingRoute.OCR_THEN_LLM,
+                        modelSummary = buildModelSummary(textModel, textProvider?.name),
+                        extractedText = ocrText,
+                        answer = rawAnswer,
+                        screenshotBase64 = bitmap.toHistoryBase64()
+                    )
+                }
+
+                ProcessingRoute.MULTIMODAL_DIRECT -> {
+                    if (visionProvider == null || visionModel.isBlank()) {
+                        error("请先在模型设置中配置多模态模型")
+                    }
+                    val rawAnswer = gateway.streamAutoCopy(
+                        provider = visionProvider,
+                        model = visionModel,
+                        assistant = assistant,
+                        bitmap = bitmap,
+                        onAnswerDelta = { delta ->
+                            _uiState.update { current ->
+                                current.copy(liveAnswerText = current.liveAnswerText + delta)
+                            }
+                        }
+                    )
+                    ProcessingResult(
+                        assistantName = assistant.name,
+                        route = ProcessingRoute.MULTIMODAL_DIRECT,
+                        modelSummary = buildModelSummary(visionModel, visionProvider.name),
+                        answer = rawAnswer,
+                        screenshotBase64 = bitmap.toHistoryBase64()
+                    )
+                }
+            }
+            val copiedText = extractCopyLabel(result.answer)
+            store.update {
+                it.copy(
+                    lastResult = result,
+                    history = (listOf(result) + it.history).take(20)
+                )
+            }
+            copiedText to result
+        }.onSuccess { (copiedText, result) ->
+            _uiState.update {
+                it.copy(
+                    screenshot = bitmap,
+                    selectedBitmap = bitmap,
+                    working = false,
+                    result = result,
+                    liveAnswerText = result.answer,
+                    autoRunState = AutoRunState.COMPLETED,
+                    autoCopiedLabel = copiedText,
+                    error = null
+                )
+            }
+        }.onFailure { error ->
+            Log.e("OverlayService", "processAutoBitmap failed", error)
+            _uiState.update {
+                it.copy(
+                    working = false,
+                    autoRunState = AutoRunState.IDLE,
+                    error = error.message ?: "处理失败"
+                )
+            }
+        }
+    }
+
+    private fun extractCopyLabel(answer: String): String {
+        val normalized = answer
+            .replace("\uFEFF", "")
+            .replace(Regex("[\\u200B-\\u200D\\u2060]"), "")
+        val matches = Regex("""\[(?:copy|复制):(.*?)]""", RegexOption.DOT_MATCHES_ALL)
+            .findAll(normalized)
+            .toList()
+        if (matches.isEmpty()) {
+            error("自动模式输出中未找到 [copy:标签]")
+        }
+        if (matches.size > 1) {
+            error("自动模式输出中包含多个 [copy:标签]")
+        }
+        val value = matches.single().groupValues[1].trim()
+        if (value.isBlank()) error("自动模式返回了空标签")
+        return value
     }
 
     companion object {

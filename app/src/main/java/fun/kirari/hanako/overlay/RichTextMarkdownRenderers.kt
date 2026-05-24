@@ -766,6 +766,56 @@ private val MarkdownInlineDelimiters = setOf(
     MarkdownTokenTypes.RPAREN
 )
 
+private data class CopyMarkerOccurrence(
+    val start: Int,
+    val length: Int,
+    val key: String,
+    val copyText: String
+)
+
+private fun findNextCopyMarkerOccurrence(
+    text: String,
+    startIndex: Int,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+): CopyMarkerOccurrence? {
+    val placeholderMatch = copyMarkerMap.values
+        .mapNotNull { token ->
+            val index = text.indexOf(token.placeholder, startIndex = startIndex)
+            if (index >= 0) {
+                CopyMarkerOccurrence(
+                    start = index,
+                    length = token.placeholder.length,
+                    key = token.placeholder,
+                    copyText = token.copyText
+                )
+            } else {
+                null
+            }
+        }
+        .minByOrNull { it.start }
+
+    val rawMatch = copyMarkerRegex.find(text, startIndex)?.let { match ->
+        val copyText = match.groupValues[1].trim()
+        if (copyText.isBlank()) {
+            null
+        } else {
+            CopyMarkerOccurrence(
+                start = match.range.first,
+                length = match.value.length,
+                key = rawCopyInlineKey(match.range.first, match.value),
+                copyText = copyText
+            )
+        }
+    }
+
+    return when {
+        placeholderMatch == null -> rawMatch
+        rawMatch == null -> placeholderMatch
+        placeholderMatch.start <= rawMatch.start -> placeholderMatch
+        else -> rawMatch
+    }
+}
+
 private fun AnnotatedString.Builder.appendCopyAwareText(
     text: String,
     inlineContents: MutableMap<String, InlineTextContent>,
@@ -776,14 +826,14 @@ private fun AnnotatedString.Builder.appendCopyAwareText(
 ) {
     var cursor = 0
     while (cursor < text.length) {
-        val nextMarker = copyMarkerMap.values.firstOrNull { token ->
-            text.startsWith(token.placeholder, cursor)
-        }
-        val nextRawMarker = copyMarkerRegex.matchAt(text, cursor)
+        val nextMarker = findNextCopyMarkerOccurrence(
+            text = text,
+            startIndex = cursor,
+            copyMarkerMap = copyMarkerMap
+        )
         val strongStart = text.indexOf("**", startIndex = cursor)
         val nextBoundary = when {
-            nextMarker != null -> cursor
-            nextRawMarker != null -> cursor
+            nextMarker != null -> nextMarker.start
             strongStart >= 0 -> strongStart
             else -> text.length
         }
@@ -794,20 +844,12 @@ private fun AnnotatedString.Builder.appendCopyAwareText(
             continue
         }
 
-        if (nextMarker != null || nextRawMarker != null) {
-            val key = nextMarker?.placeholder
-                ?: rawCopyInlineKey(cursor, nextRawMarker!!.value)
-            val copyText = nextMarker?.copyText ?: nextRawMarker!!.groupValues[1].trim()
-            if (copyText.isBlank()) {
-                append(nextRawMarker?.value.orEmpty())
-                cursor += nextRawMarker?.value?.length ?: 0
-                continue
-            }
-            inlineContents.putIfAbsent(key, InlineTextContent(copyPlaceholderFor(copyText)) {
-                CopyMarkerInline(copyText = copyText)
+        if (nextMarker != null && nextMarker.start == cursor) {
+            inlineContents.putIfAbsent(nextMarker.key, InlineTextContent(copyPlaceholderFor(nextMarker.copyText)) {
+                CopyMarkerInline(copyText = nextMarker.copyText)
             })
-            appendInlineContent(key, "copy")
-            cursor += nextMarker?.placeholder?.length ?: nextRawMarker!!.value.length
+            appendInlineContent(nextMarker.key, "copy")
+            cursor += nextMarker.length
         } else if (strongStart >= 0) {
             val strongEnd = text.indexOf("**", startIndex = strongStart + 2)
             if (strongEnd < 0) {

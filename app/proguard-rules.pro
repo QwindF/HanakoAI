@@ -19,3 +19,8 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Compose and Kotlin serialization rely on generated/metadata-driven code.
+-keepattributes KotlinMetadata,InnerClasses,EnclosingMethod,Signature
+-keep class kotlinx.serialization.** { *; }
+-keep class **$$serializer { *; }

@@ -50,6 +50,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,12 +63,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import `fun`.kirari.hanako.capture.MediaProjectionForegroundService
 import `fun`.kirari.hanako.capture.ProjectionPermissionActivity
 import `fun`.kirari.hanako.capture.ProjectionSessionManager
@@ -77,6 +81,7 @@ import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.displayName
 import `fun`.kirari.hanako.data.modelSelectionFor
 import `fun`.kirari.hanako.data.normalize
+import `fun`.kirari.hanako.overlay.OverlayLaunchMode
 import `fun`.kirari.hanako.overlay.OverlayService
 import `fun`.kirari.hanako.ui.components.CustomModelDialog
 import `fun`.kirari.hanako.ui.components.HeroSection
@@ -97,6 +102,7 @@ private const val ROUTE_SETTINGS_PROVIDER_DETAIL = "settings_provider_detail"
 private const val ROUTE_SETTINGS_MODEL = "settings_model"
 private const val ROUTE_SETTINGS_ASSISTANT = "settings_assistant"
 private const val ROUTE_SETTINGS_ASSISTANT_DETAIL = "settings_assistant_detail"
+private const val ROUTE_SETTINGS_AUTOMATION = "settings_automation"
 private const val ARG_PROVIDER_ID = "providerId"
 private const val ARG_ASSISTANT_ID = "assistantId"
 private const val ARG_HISTORY_ID = "historyId"
@@ -109,6 +115,7 @@ private fun settingsTitle(route: String?): String = when (route) {
     ROUTE_SETTINGS_PROVIDER -> "模型提供方"
     ROUTE_SETTINGS_MODEL -> "模型设置"
     ROUTE_SETTINGS_ASSISTANT -> "助手配置"
+    ROUTE_SETTINGS_AUTOMATION -> "自动模式"
     null -> "设置"
     else -> when {
         route.startsWith("$ROUTE_SETTINGS_PROVIDER_DETAIL/") -> "编辑提供方"
@@ -132,6 +139,8 @@ fun HanakoApp(viewModel: MainViewModel) {
     val settings by viewModel.settings.collectAsState()
     val context = LocalContext.current
     val overlayEnabled by ProjectionSessionManager.sessionActive.collectAsState()
+    var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    val lifecycleOwner = LocalLifecycleOwner.current
     val selectedAssistant = settings.assistants.firstOrNull { it.id == settings.selectedAssistantId }
     var providerModelsPreviewId by remember { mutableStateOf<String?>(null) }
     var modelPickerTarget by remember { mutableStateOf<ModelPurpose?>(null) }
@@ -156,6 +165,19 @@ fun HanakoApp(viewModel: MainViewModel) {
         initialPage = currentScreen.ordinal,
         pageCount = { Screen.entries.size }
     )
+
+    DisposableEffect(lifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasOverlayPermission = Settings.canDrawOverlays(context)
+            }
+        }
+
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     BackHandler(enabled = currentScreen == Screen.Settings && !inSettingsSubPage) {
         currentScreen = Screen.Hanako
@@ -278,21 +300,29 @@ fun HanakoApp(viewModel: MainViewModel) {
             ) {
                 when (Screen.entries[it]) {
                     Screen.Hanako -> {
-                        HanakoNavHost(
-                            navController = hanakoNavController,
-                            settings = settings,
-                            overlayEnabled = overlayEnabled,
-                            onOpenOverlayPermission = {
-                                context.startActivity(
-                                    Intent(
-                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                        Uri.parse("package:${context.packageName}")
+                    HanakoNavHost(
+                        navController = hanakoNavController,
+                        settings = settings,
+                        overlayEnabled = overlayEnabled,
+                        hasOverlayPermission = hasOverlayPermission,
+                        onOpenOverlayPermission = {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
                                     )
                                 )
                             },
                             onToggleOverlay = { enabled ->
                                 if (enabled) {
-                                    context.startActivity(Intent(context, ProjectionPermissionActivity::class.java))
+                                    context.startActivity(
+                                        Intent(context, ProjectionPermissionActivity::class.java).apply {
+                                            putExtra(
+                                                ProjectionPermissionActivity.EXTRA_LAUNCH_MODE,
+                                                OverlayLaunchMode.NORMAL.name
+                                            )
+                                        }
+                                    )
                                 } else {
                                     context.stopService(Intent(context, OverlayService::class.java))
                                     context.stopService(
@@ -322,7 +352,12 @@ fun HanakoApp(viewModel: MainViewModel) {
                             onUpdateAssistant = viewModel::updateAssistant,
                             onAddAssistant = viewModel::addAssistant,
                             onDeleteAssistant = viewModel::deleteAssistant,
-                            onUpdateModelSelection = viewModel::updateModelSelection
+                            onUpdateModelSelection = viewModel::updateModelSelection,
+                            onToggleCompletionNotification = { enabled ->
+                                viewModel.updateAutomationSettings {
+                                    it.copy(completionNotificationEnabled = enabled)
+                                }
+                            }
                         )
                     }
                 }
@@ -413,12 +448,14 @@ private fun HanakoNavHost(
     navController: androidx.navigation.NavController,
     settings: `fun`.kirari.hanako.data.AppSettings,
     overlayEnabled: Boolean,
+    hasOverlayPermission: Boolean,
     onOpenOverlayPermission: () -> Unit,
     onToggleOverlay: (Boolean) -> Unit,
     onSelectRoute: (`fun`.kirari.hanako.data.ProcessingRoute) -> Unit,
     onClearHistory: () -> Unit,
     onDeleteHistoryItem: (String) -> Unit
 ) {
+    val context = LocalContext.current
     NavHost(
         navController = navController as androidx.navigation.NavHostController,
         startDestination = ROUTE_HANAKO_HOME,
@@ -444,10 +481,22 @@ private fun HanakoNavHost(
                 item {
                     HeroSection(
                         overlayEnabled = overlayEnabled,
+                        hasOverlayPermission = hasOverlayPermission,
                         route = settings.processingRoute,
                         onSelectRoute = onSelectRoute,
                         onOpenOverlayPermission = onOpenOverlayPermission,
-                        onToggleOverlay = onToggleOverlay
+                        onToggleOverlay = onToggleOverlay,
+                        onStartAutoMode = {
+                            if (!hasOverlayPermission) return@HeroSection
+                            context.startActivity(
+                                Intent(context, ProjectionPermissionActivity::class.java).apply {
+                                    putExtra(
+                                        ProjectionPermissionActivity.EXTRA_LAUNCH_MODE,
+                                        OverlayLaunchMode.AUTO.name
+                                    )
+                                }
+                            )
+                        }
                     )
                 }
 
@@ -528,7 +577,8 @@ private fun SettingsNavHost(
     onUpdateAssistant: (`fun`.kirari.hanako.data.AssistantPreset) -> Unit,
     onAddAssistant: () -> Unit,
     onDeleteAssistant: (String) -> Unit,
-    onUpdateModelSelection: (ModelPurpose, ModelSelection) -> Unit
+    onUpdateModelSelection: (ModelPurpose, ModelSelection) -> Unit,
+    onToggleCompletionNotification: (Boolean) -> Unit
 ) {
     NavHost(
         navController = navController as androidx.navigation.NavHostController,
@@ -550,7 +600,8 @@ private fun SettingsNavHost(
             SettingsMenuScreen(
                 onNavigateProvider = { navController.navigate(ROUTE_SETTINGS_PROVIDER) },
                 onNavigateModel = { navController.navigate(ROUTE_SETTINGS_MODEL) },
-                onNavigateAssistant = { navController.navigate(ROUTE_SETTINGS_ASSISTANT) }
+                onNavigateAssistant = { navController.navigate(ROUTE_SETTINGS_ASSISTANT) },
+                onNavigateAutomation = { navController.navigate(ROUTE_SETTINGS_AUTOMATION) }
             )
         }
         composable(ROUTE_SETTINGS_PROVIDER) {
@@ -590,6 +641,12 @@ private fun SettingsNavHost(
                     onSelectAssistant(assistantId)
                     navController.navigate(assistantDetailRoute(assistantId))
                 }
+            )
+        }
+        composable(ROUTE_SETTINGS_AUTOMATION) {
+            AutomationSettingsScreen(
+                settings = settings.automation,
+                onToggleCompletionNotification = onToggleCompletionNotification
             )
         }
         composable("$ROUTE_SETTINGS_ASSISTANT_DETAIL/{$ARG_ASSISTANT_ID}") { backStackEntry ->

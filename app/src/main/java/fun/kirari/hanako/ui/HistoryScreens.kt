@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+
 package `fun`.kirari.hanako.ui
 
 import android.content.ClipData

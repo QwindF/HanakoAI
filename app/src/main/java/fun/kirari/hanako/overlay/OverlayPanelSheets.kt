@@ -1,6 +1,8 @@
 package `fun`.kirari.hanako.overlay
 
 import android.graphics.Bitmap
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.widget.Toast
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
@@ -28,7 +30,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -57,10 +58,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +67,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import `fun`.kirari.hanako.data.AssistantPreset
+import `fun`.kirari.hanako.data.previewPrompt
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.ModelPurpose
 import `fun`.kirari.hanako.data.ModelSelection
@@ -387,9 +387,7 @@ internal fun ResultOverlaySheet(
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
     val panelMaxHeight = with(density) { panelHeightPx.toDp() }
-    val clipboardManager = LocalClipboardManager.current
     val answerText = uiState.liveAnswerText
-    var rawTextMode by remember(answerText) { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -460,36 +458,14 @@ internal fun ResultOverlaySheet(
                                 SmallHeaderAction(
                                     label = "复制",
                                     onClick = {
-                                        clipboardManager.setText(AnnotatedString(answerText))
+                                        copyToClipboard(context, "Hanako 原始答案", answerText)
                                         Toast.makeText(context, "已复制全文", Toast.LENGTH_SHORT).show()
                                     }
-                                )
-                                SmallHeaderAction(
-                                    label = "选择文本复制",
-                                    active = rawTextMode,
-                                    onClick = { rawTextMode = !rawTextMode }
                                 )
                             }
                         }
                     ) {
                         when {
-                            answerText.isNotBlank() && rawTextMode -> {
-                                Surface(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
-                                ) {
-                                    SelectionContainer {
-                                        Text(
-                                            text = answerText,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(14.dp),
-                                            style = MaterialTheme.typography.bodyMedium
-                                        )
-                                    }
-                                }
-                            }
                             answerText.isNotBlank() -> MarkdownLatexText(
                                 content = answerText,
                                 modifier = Modifier.fillMaxWidth()
@@ -730,7 +706,7 @@ private fun AssistantPickerOverlay(
                             ) {
                                 Text(assistant.name, style = MaterialTheme.typography.titleSmall)
                                 Text(
-                                    assistant.systemPrompt.replace('\n', ' '),
+                                    assistant.previewPrompt().replace('\n', ' '),
                                     maxLines = 2,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1293,4 +1269,9 @@ private fun LoadingLine(text: String) {
         CircularProgressIndicator(strokeWidth = 2.dp)
         Text(text)
     }
+}
+
+private fun copyToClipboard(context: android.content.Context, label: String, text: String) {
+    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
 }

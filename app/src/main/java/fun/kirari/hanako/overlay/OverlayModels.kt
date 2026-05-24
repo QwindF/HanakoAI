@@ -14,6 +14,17 @@ internal enum class OverlaySheetMode {
     RESULT
 }
 
+internal enum class OverlayLaunchMode {
+    NORMAL,
+    AUTO
+}
+
+internal enum class AutoRunState {
+    IDLE,
+    RUNNING,
+    COMPLETED
+}
+
 internal data class OverlayUiState(
     val settings: AppSettings = AppSettings(),
     val screenshot: Bitmap? = null,
@@ -24,7 +35,10 @@ internal data class OverlayUiState(
     val error: String? = null,
     val working: Boolean = false,
     val sheetVisible: Boolean = false,
-    val sheetMode: OverlaySheetMode = OverlaySheetMode.CROP
+    val sheetMode: OverlaySheetMode = OverlaySheetMode.CROP,
+    val launchMode: OverlayLaunchMode = OverlayLaunchMode.NORMAL,
+    val autoRunState: AutoRunState = AutoRunState.IDLE,
+    val autoCopiedLabel: String? = null
 )
 
 internal fun easeOutCubic(fraction: Float): Float {
