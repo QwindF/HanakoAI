@@ -19,18 +19,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -51,13 +50,12 @@ import androidx.compose.ui.text.withLink
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.net.toUri
 import androidx.core.text.HtmlCompat
 import coil.compose.AsyncImage
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import org.intellij.markdown.MarkdownElementTypes
 import org.intellij.markdown.MarkdownTokenTypes
 import org.intellij.markdown.ast.ASTNode
@@ -71,15 +69,9 @@ fun MarkdownLatexText(
     modifier: Modifier = Modifier,
     style: TextStyle = androidx.compose.material3.LocalTextStyle.current
 ) {
-    var parsed by remember(content) {
-        mutableStateOf(parseMarkdown(content))
-    }
-    val currentContent by rememberUpdatedState(content)
-
-    LaunchedEffect(content) {
-        parsed = withContext(Dispatchers.Default) {
-            parseMarkdown(currentContent)
-        }
+    val parsed = remember(content) { parseMarkdown(content) }
+    val copyMarkerMap = remember(parsed.copyMarkers) {
+        parsed.copyMarkers.associateBy { it.placeholder }
     }
 
     ProvideTextStyle(style) {
@@ -87,7 +79,8 @@ fun MarkdownLatexText(
             parsed.astTree.children.fastForEach { child ->
                 MarkdownNode(
                     node = child,
-                    content = parsed.preprocessed
+                    content = parsed.preprocessed,
+                    copyMarkerMap = copyMarkerMap
                 )
             }
         }
@@ -95,43 +88,129 @@ fun MarkdownLatexText(
 }
 
 @Composable
+private fun CopyMarkerChip(
+    copyText: String
+) {
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    Surface(
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
+        shape = MaterialTheme.shapes.small
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable {
+                    clipboardManager.setText(AnnotatedString(copyText))
+                    android.widget.Toast.makeText(context, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                text = copyText.replace('\n', ' '),
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 180.dp)
+            )
+            Icon(
+                imageVector = Icons.Filled.ContentCopy,
+                contentDescription = "复制",
+                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                modifier = Modifier.size(14.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun InlineMarkdownText(
+    text: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
+    val colorScheme = MaterialTheme.colorScheme
+    val density = LocalDensity.current
+    val textStyle = androidx.compose.material3.LocalTextStyle.current
+    val inlineContents = remember(text, copyMarkerMap) {
+        mutableMapOf<String, InlineTextContent>()
+    }
+
+    val annotated = remember(text, copyMarkerMap) {
+        buildAnnotatedString {
+            appendCopyAwareText(text, inlineContents, copyMarkerMap, colorScheme, density, textStyle)
+        }
+    }
+
+    Text(
+        text = annotated,
+        inlineContent = inlineContents,
+        softWrap = true,
+        overflow = TextOverflow.Visible
+    )
+}
+
+@Composable
+private fun CopyMarkerInline(
+    copyText: String
+) {
+    CopyMarkerChip(copyText = copyText)
+}
+
+private fun copyPlaceholderFor(copyText: String): Placeholder {
+    val displayText = copyText.replace('\n', ' ')
+    val width = (displayText.length.coerceIn(2, 24) * 8 + 44).sp
+    return Placeholder(
+        width = width,
+        height = 32.sp,
+        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+    )
+}
+
+@Composable
 private fun MarkdownNode(
     node: ASTNode,
-    content: String
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
 ) {
     when (node.type) {
-        MarkdownElementTypes.MARKDOWN_FILE -> node.children.fastForEach { child -> MarkdownNode(child, content) }
-        MarkdownElementTypes.PARAGRAPH -> Paragraph(node = node, content = content)
+        MarkdownElementTypes.MARKDOWN_FILE -> node.children.fastForEach { child -> MarkdownNode(child, content, copyMarkerMap) }
+        MarkdownElementTypes.PARAGRAPH -> Paragraph(node = node, content = content, copyMarkerMap = copyMarkerMap)
         MarkdownElementTypes.ATX_1,
         MarkdownElementTypes.ATX_2,
         MarkdownElementTypes.ATX_3,
         MarkdownElementTypes.ATX_4,
         MarkdownElementTypes.ATX_5,
-        MarkdownElementTypes.ATX_6 -> Heading(node = node, content = content)
-        MarkdownElementTypes.UNORDERED_LIST -> ListNode(node = node, content = content, ordered = false)
-        MarkdownElementTypes.ORDERED_LIST -> ListNode(node = node, content = content, ordered = true)
-        MarkdownElementTypes.BLOCK_QUOTE -> QuoteBlock(node = node, content = content)
+        MarkdownElementTypes.ATX_6 -> Heading(node = node, content = content, copyMarkerMap = copyMarkerMap)
+        MarkdownElementTypes.UNORDERED_LIST -> ListNode(node = node, content = content, ordered = false, copyMarkerMap = copyMarkerMap)
+        MarkdownElementTypes.ORDERED_LIST -> ListNode(node = node, content = content, ordered = true, copyMarkerMap = copyMarkerMap)
+        MarkdownElementTypes.BLOCK_QUOTE -> QuoteBlock(node = node, content = content, copyMarkerMap = copyMarkerMap)
         MarkdownTokenTypes.HORIZONTAL_RULE -> HorizontalDivider(
             modifier = Modifier.padding(vertical = 10.dp),
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.18f),
             thickness = 1.dp
         )
-        MarkdownElementTypes.INLINE_LINK -> LinkNode(node = node, content = content)
+        MarkdownElementTypes.INLINE_LINK -> LinkNode(node = node, content = content, copyMarkerMap = copyMarkerMap)
         GFMElementTypes.INLINE_MATH -> LatexInline(latex = node.getText(content), modifier = Modifier.padding(horizontal = 1.dp))
         GFMElementTypes.BLOCK_MATH -> LatexBlock(latex = node.getText(content), modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp))
-        MarkdownElementTypes.CODE_SPAN -> CodeSpan(node = node, content = content)
-        MarkdownElementTypes.CODE_FENCE -> CodeFence(node = node, content = content)
-        MarkdownElementTypes.IMAGE -> ImageNode(node = node, content = content)
+        MarkdownElementTypes.CODE_SPAN -> CodeSpan(node = node, content = content, copyMarkerMap = copyMarkerMap)
+        MarkdownElementTypes.CODE_FENCE -> CodeFence(node = node, content = content, copyMarkerMap = copyMarkerMap)
+        MarkdownElementTypes.IMAGE -> ImageNode(node = node, content = content, copyMarkerMap = copyMarkerMap)
         MarkdownElementTypes.HTML_BLOCK -> HtmlBlock(html = node.getText(content), modifier = Modifier.fillMaxWidth())
-        GFMTokenTypes.CHECK_BOX -> CheckBox(node = node, content = content)
-        GFMElementTypes.TABLE -> MarkdownTable(node = node, content = content)
-        MarkdownTokenTypes.TEXT -> Text(text = node.getText(content))
-        else -> node.children.fastForEach { child -> MarkdownNode(child, content) }
+        GFMTokenTypes.CHECK_BOX -> CheckBox(node = node, content = content, copyMarkerMap = copyMarkerMap)
+        GFMElementTypes.TABLE -> MarkdownTable(node = node, content = content, copyMarkerMap = copyMarkerMap)
+        MarkdownTokenTypes.TEXT -> InlineMarkdownText(text = node.getText(content), copyMarkerMap = copyMarkerMap)
+        else -> node.children.fastForEach { child -> MarkdownNode(child, content, copyMarkerMap) }
     }
 }
 
 @Composable
-private fun Heading(node: ASTNode, content: String) {
+private fun Heading(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     val style = when (node.type) {
         MarkdownElementTypes.ATX_1 -> MaterialTheme.typography.headlineLarge
         MarkdownElementTypes.ATX_2 -> MaterialTheme.typography.headlineMedium
@@ -162,6 +241,7 @@ private fun Heading(node: ASTNode, content: String) {
                 Paragraph(
                     node = child,
                     content = content,
+                    copyMarkerMap = copyMarkerMap,
                     trim = true,
                     topPadding = topPadding,
                     bottomPadding = bottomPadding
@@ -172,7 +252,11 @@ private fun Heading(node: ASTNode, content: String) {
 }
 
 @Composable
-private fun QuoteBlock(node: ASTNode, content: String) {
+private fun QuoteBlock(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     Column(
         modifier = Modifier
             .padding(vertical = 6.dp)
@@ -180,12 +264,16 @@ private fun QuoteBlock(node: ASTNode, content: String) {
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f))
             .padding(start = 10.dp, top = 8.dp, end = 12.dp, bottom = 8.dp)
     ) {
-        node.children.fastForEach { child -> MarkdownNode(node = child, content = content) }
+        node.children.fastForEach { child -> MarkdownNode(node = child, content = content, copyMarkerMap = copyMarkerMap) }
     }
 }
 
 @Composable
-private fun LinkNode(node: ASTNode, content: String) {
+private fun LinkNode(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     val linkText = node.findChildRecursive(MarkdownElementTypes.LINK_TEXT)
         ?.findChildRecursive(GFMTokenTypes.GFM_AUTOLINK, MarkdownTokenTypes.TEXT)
         ?.getText(content)
@@ -205,7 +293,11 @@ private fun LinkNode(node: ASTNode, content: String) {
 }
 
 @Composable
-private fun CodeSpan(node: ASTNode, content: String) {
+private fun CodeSpan(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     Text(
         text = node.getText(content).trim('`'),
         fontFamily = FontFamily.Monospace,
@@ -217,7 +309,11 @@ private fun CodeSpan(node: ASTNode, content: String) {
 }
 
 @Composable
-private fun CodeFence(node: ASTNode, content: String) {
+private fun CodeFence(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     val code = extractCodeFenceContent(node, content)
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -235,7 +331,11 @@ private fun CodeFence(node: ASTNode, content: String) {
 }
 
 @Composable
-private fun ImageNode(node: ASTNode, content: String) {
+private fun ImageNode(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     val altText = node.findChildRecursive(MarkdownElementTypes.LINK_TEXT)?.getText(content).orEmpty()
     val imageUrl = node.findChildRecursive(MarkdownElementTypes.LINK_DESTINATION)?.getText(content).orEmpty()
     if (imageUrl.isNotBlank()) {
@@ -251,7 +351,11 @@ private fun ImageNode(node: ASTNode, content: String) {
 }
 
 @Composable
-private fun CheckBox(node: ASTNode, content: String) {
+private fun CheckBox(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     val isChecked = node.getText(content).trim().equals("[x]", ignoreCase = true)
     Surface(
         shape = MaterialTheme.shapes.small,
@@ -272,7 +376,11 @@ private fun CheckBox(node: ASTNode, content: String) {
 }
 
 @Composable
-private fun MarkdownTable(node: ASTNode, content: String) {
+private fun MarkdownTable(
+    node: ASTNode,
+    content: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
+) {
     val headerNode = node.children.find { it.type == GFMElementTypes.HEADER }
     val rows = node.children.filter { it.type == GFMElementTypes.ROW }
     val columnCount = headerNode?.children?.count { it.type == GFMTokenTypes.CELL } ?: 0
@@ -294,7 +402,8 @@ private fun MarkdownTable(node: ASTNode, content: String) {
         Column(modifier = Modifier.fillMaxWidth()) {
             TableRow(
                 cells = List(columnCount) { index -> headerCells.getOrNull(index).orEmpty() },
-                header = true
+                header = true,
+                copyMarkerMap = copyMarkerMap
             )
             dataRows.forEachIndexed { rowIndex, row ->
                 if (rowIndex == 0) {
@@ -302,7 +411,8 @@ private fun MarkdownTable(node: ASTNode, content: String) {
                 }
                 TableRow(
                     cells = List(columnCount) { index -> row.getOrNull(index).orEmpty() },
-                    header = false
+                    header = false,
+                    copyMarkerMap = copyMarkerMap
                 )
             }
         }
@@ -312,7 +422,8 @@ private fun MarkdownTable(node: ASTNode, content: String) {
 @Composable
 private fun TableRow(
     cells: List<String>,
-    header: Boolean
+    header: Boolean,
+    copyMarkerMap: Map<String, CopyMarkerToken>
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
         cells.forEach { cell ->
@@ -328,7 +439,7 @@ private fun TableRow(
                         fontWeight = FontWeight.SemiBold
                     )
                 } else {
-                    MarkdownLatexText(content = cell)
+                    InlineMarkdownText(text = cell, copyMarkerMap = copyMarkerMap)
                 }
             }
         }
@@ -360,7 +471,8 @@ private fun HtmlBlock(
 private fun ListNode(
     node: ASTNode,
     content: String,
-    ordered: Boolean
+    ordered: Boolean,
+    copyMarkerMap: Map<String, CopyMarkerToken>
 ) {
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
         var index = 1
@@ -371,7 +483,7 @@ private fun ListNode(
             } else {
                 "• "
             }
-            ListItem(node = child, content = content, bullet = bullet)
+            ListItem(node = child, content = content, bullet = bullet, copyMarkerMap = copyMarkerMap)
         }
     }
 }
@@ -380,7 +492,8 @@ private fun ListNode(
 private fun ListItem(
     node: ASTNode,
     content: String,
-    bullet: String
+    bullet: String,
+    copyMarkerMap: Map<String, CopyMarkerToken>
 ) {
     val (directContent, nestedLists) = splitListItem(node)
     Column {
@@ -391,11 +504,11 @@ private fun ListItem(
                     color = MaterialTheme.colorScheme.primary
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    directContent.fastForEach { child -> MarkdownNode(node = child, content = content) }
+                    directContent.fastForEach { child -> MarkdownNode(node = child, content = content, copyMarkerMap = copyMarkerMap) }
                 }
             }
         }
-        nestedLists.fastForEach { nested -> MarkdownNode(node = nested, content = content) }
+        nestedLists.fastForEach { nested -> MarkdownNode(node = nested, content = content, copyMarkerMap = copyMarkerMap) }
     }
 }
 
@@ -405,7 +518,8 @@ private fun Paragraph(
     content: String,
     trim: Boolean = false,
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
-    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp
+    bottomPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    copyMarkerMap: Map<String, CopyMarkerToken> = emptyMap()
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val density = LocalDensity.current
@@ -422,6 +536,7 @@ private fun Paragraph(
                     content = content,
                     trim = trim,
                     inlineContents = inlineContents,
+                    copyMarkerMap = copyMarkerMap,
                     colorScheme = colorScheme,
                     density = density,
                     style = textStyle
@@ -456,6 +571,7 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
     content: String,
     trim: Boolean,
     inlineContents: MutableMap<String, InlineTextContent>,
+    copyMarkerMap: Map<String, CopyMarkerToken>,
     colorScheme: androidx.compose.material3.ColorScheme,
     density: Density,
     style: TextStyle
@@ -473,25 +589,65 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
         node is LeafASTNode -> {
             val text = node.getText(content).let { if (trim) it.trim() else it }.replace(breakLineRegex, "\n")
             if (node.type !in MarkdownInlineDelimiters) {
-                appendTextWithStrongFallback(text)
+                appendCopyAwareText(
+                    text = text,
+                    inlineContents = inlineContents,
+                    copyMarkerMap = copyMarkerMap,
+                    colorScheme = colorScheme,
+                    density = density,
+                    style = style
+                )
             }
         }
 
         node.type == MarkdownElementTypes.EMPH -> {
             withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
-                node.children.fastForEach { appendMarkdownNodeContent(it, content, trim, inlineContents, colorScheme, density, style) }
+                node.children.fastForEach {
+                    appendMarkdownNodeContent(
+                        node = it,
+                        content = content,
+                        trim = trim,
+                        inlineContents = inlineContents,
+                        copyMarkerMap = copyMarkerMap,
+                        colorScheme = colorScheme,
+                        density = density,
+                        style = style
+                    )
+                }
             }
         }
 
         node.type == MarkdownElementTypes.STRONG -> {
             withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
-                node.children.fastForEach { appendMarkdownNodeContent(it, content, trim, inlineContents, colorScheme, density, style) }
+                node.children.fastForEach {
+                    appendMarkdownNodeContent(
+                        node = it,
+                        content = content,
+                        trim = trim,
+                        inlineContents = inlineContents,
+                        copyMarkerMap = copyMarkerMap,
+                        colorScheme = colorScheme,
+                        density = density,
+                        style = style
+                    )
+                }
             }
         }
 
         node.type == GFMElementTypes.STRIKETHROUGH -> {
             withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
-                node.children.fastForEach { appendMarkdownNodeContent(it, content, trim, inlineContents, colorScheme, density, style) }
+                node.children.fastForEach {
+                    appendMarkdownNodeContent(
+                        node = it,
+                        content = content,
+                        trim = trim,
+                        inlineContents = inlineContents,
+                        copyMarkerMap = copyMarkerMap,
+                        colorScheme = colorScheme,
+                        density = density,
+                        style = style
+                    )
+                }
             }
         }
 
@@ -500,7 +656,14 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
             val linkText = node.findChildRecursive(MarkdownElementTypes.LINK_TEXT)?.getText(content).orEmpty()
             withLink(LinkAnnotation.Url(linkDest)) {
                 withStyle(SpanStyle(color = colorScheme.primary, textDecoration = TextDecoration.Underline)) {
-                    append(linkText.ifBlank { linkDest })
+                    appendCopyAwareText(
+                        text = linkText.ifBlank { linkDest },
+                        inlineContents = inlineContents,
+                        copyMarkerMap = copyMarkerMap,
+                        colorScheme = colorScheme,
+                        density = density,
+                        style = style
+                    )
                 }
             }
         }
@@ -509,7 +672,14 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
             val link = node.getText(content)
             withLink(LinkAnnotation.Url(link)) {
                 withStyle(SpanStyle(color = colorScheme.primary, textDecoration = TextDecoration.Underline)) {
-                    append(link)
+                    appendCopyAwareText(
+                        text = link,
+                        inlineContents = inlineContents,
+                        copyMarkerMap = copyMarkerMap,
+                        colorScheme = colorScheme,
+                        density = density,
+                        style = style
+                    )
                 }
             }
         }
@@ -523,7 +693,14 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
                 )
             ) {
                 append(" ")
-                append(node.getText(content).trim('`'))
+                appendCopyAwareText(
+                    text = node.getText(content).trim('`'),
+                    inlineContents = inlineContents,
+                    copyMarkerMap = copyMarkerMap,
+                    colorScheme = colorScheme,
+                    density = density,
+                    style = style
+                )
                 append(" ")
             }
         }
@@ -553,10 +730,28 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
         node.type == MarkdownElementTypes.IMAGE -> {
             val altText = node.findChildRecursive(MarkdownElementTypes.LINK_TEXT)?.getText(content).orEmpty()
             val imageUrl = node.findChildRecursive(MarkdownElementTypes.LINK_DESTINATION)?.getText(content).orEmpty()
-            append(altText.ifBlank { imageUrl })
+            appendCopyAwareText(
+                text = altText.ifBlank { imageUrl },
+                inlineContents = inlineContents,
+                copyMarkerMap = copyMarkerMap,
+                colorScheme = colorScheme,
+                density = density,
+                style = style
+            )
         }
 
-        else -> node.children.fastForEach { appendMarkdownNodeContent(it, content, trim, inlineContents, colorScheme, density, style) }
+        else -> node.children.fastForEach {
+            appendMarkdownNodeContent(
+                node = it,
+                content = content,
+                trim = trim,
+                inlineContents = inlineContents,
+                copyMarkerMap = copyMarkerMap,
+                colorScheme = colorScheme,
+                density = density,
+                style = style
+            )
+        }
     }
 }
 
@@ -570,6 +765,72 @@ private val MarkdownInlineDelimiters = setOf(
     MarkdownTokenTypes.LPAREN,
     MarkdownTokenTypes.RPAREN
 )
+
+private fun AnnotatedString.Builder.appendCopyAwareText(
+    text: String,
+    inlineContents: MutableMap<String, InlineTextContent>,
+    copyMarkerMap: Map<String, CopyMarkerToken>,
+    colorScheme: androidx.compose.material3.ColorScheme,
+    density: Density,
+    style: TextStyle
+) {
+    var cursor = 0
+    while (cursor < text.length) {
+        val nextMarker = copyMarkerMap.values.firstOrNull { token ->
+            text.startsWith(token.placeholder, cursor)
+        }
+        val nextRawMarker = copyMarkerRegex.matchAt(text, cursor)
+        val strongStart = text.indexOf("**", startIndex = cursor)
+        val nextBoundary = when {
+            nextMarker != null -> cursor
+            nextRawMarker != null -> cursor
+            strongStart >= 0 -> strongStart
+            else -> text.length
+        }
+
+        if (nextBoundary > cursor) {
+            appendTextWithStrongFallback(text.substring(cursor, nextBoundary))
+            cursor = nextBoundary
+            continue
+        }
+
+        if (nextMarker != null || nextRawMarker != null) {
+            val key = nextMarker?.placeholder
+                ?: rawCopyInlineKey(cursor, nextRawMarker!!.value)
+            val copyText = nextMarker?.copyText ?: nextRawMarker!!.groupValues[1].trim()
+            if (copyText.isBlank()) {
+                append(nextRawMarker?.value.orEmpty())
+                cursor += nextRawMarker?.value?.length ?: 0
+                continue
+            }
+            inlineContents.putIfAbsent(key, InlineTextContent(copyPlaceholderFor(copyText)) {
+                CopyMarkerInline(copyText = copyText)
+            })
+            appendInlineContent(key, "copy")
+            cursor += nextMarker?.placeholder?.length ?: nextRawMarker!!.value.length
+        } else if (strongStart >= 0) {
+            val strongEnd = text.indexOf("**", startIndex = strongStart + 2)
+            if (strongEnd < 0) {
+                append(text.substring(cursor))
+                return
+            }
+            if (strongStart > cursor) {
+                append(text.substring(cursor, strongStart))
+            }
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold)) {
+                append(text.substring(strongStart + 2, strongEnd))
+            }
+            cursor = strongEnd + 2
+        } else {
+            append(text.substring(cursor))
+            return
+        }
+    }
+}
+
+private fun rawCopyInlineKey(cursor: Int, value: String): String {
+    return "raw-copy-$cursor-${value.hashCode()}"
+}
 
 private fun AnnotatedString.Builder.appendTextWithStrongFallback(text: String) {
     var cursor = 0

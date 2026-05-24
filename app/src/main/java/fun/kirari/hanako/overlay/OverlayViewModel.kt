@@ -45,7 +45,6 @@ internal class OverlayViewModel(
             runCatching {
                 withContext(Dispatchers.IO) { ProjectionSessionManager.captureLatestBitmap() }
             }.onSuccess { bitmap ->
-                Log.d("OverlayService", "openCropSheet success bitmap=${bitmap.width}x${bitmap.height}")
                 _uiState.update {
                     it.copy(
                         screenshot = bitmap,
@@ -83,10 +82,6 @@ internal class OverlayViewModel(
         val visionModel = state.settings.resolveModelName(ModelPurpose.VISION)
 
         viewModelScope.launch {
-            Log.d(
-                "OverlayService",
-                "process start bitmap=${bitmap.width}x${bitmap.height} route=${state.settings.processingRoute} assistant=${assistant.name}"
-            )
             _uiState.update {
                 it.copy(
                     selectedBitmap = bitmap,
@@ -99,7 +94,6 @@ internal class OverlayViewModel(
                     sheetMode = OverlaySheetMode.RESULT
                 )
             }
-            Log.d("OverlayService", "process switched to RESULT sheet")
             runCatching {
                 when (state.settings.processingRoute) {
                     ProcessingRoute.OCR_THEN_LLM -> {
@@ -117,13 +111,11 @@ internal class OverlayViewModel(
                                 _uiState.update { current ->
                                     current.copy(liveOcrText = current.liveOcrText + delta)
                                 }
-                                Log.d("OverlayService", "ocr delta len=${delta.length}")
                             },
                             onAnswerDelta = { delta ->
                                 _uiState.update { current ->
                                     current.copy(liveAnswerText = current.liveAnswerText + delta)
                                 }
-                                Log.d("OverlayService", "answer delta len=${delta.length}")
                             }
                         )
                         ProcessingResult(
@@ -149,7 +141,6 @@ internal class OverlayViewModel(
                                 _uiState.update { current ->
                                     current.copy(liveAnswerText = current.liveAnswerText + delta)
                                 }
-                                Log.d("OverlayService", "answer delta len=${delta.length}")
                             }
                         )
                         ProcessingResult(
@@ -162,7 +153,6 @@ internal class OverlayViewModel(
                     }
                 }
             }.onSuccess { result ->
-                Log.d("OverlayService", "process success answer=${result.answer.length} ocr=${result.extractedText.length}")
                 store.update {
                     it.copy(
                         lastResult = result,

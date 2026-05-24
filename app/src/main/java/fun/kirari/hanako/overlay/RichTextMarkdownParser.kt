@@ -19,27 +19,63 @@ internal val inlineLatexRegex = Regex("""\\\((.+?)\\\)""", RegexOption.DOT_MATCH
 internal val blockLatexRegex = Regex("""\\\[(.+?)\\\]""", RegexOption.DOT_MATCHES_ALL)
 internal val codeBlockRegex = Regex("```[\\s\\S]*?```|`[^`\n]*`", RegexOption.DOT_MATCHES_ALL)
 internal val breakLineRegex = Regex("(?i)<br\\s*/?>")
+internal val copyMarkerRegex = Regex("""\[(?:copy|复制):(.*?)\]""", RegexOption.DOT_MATCHES_ALL)
 
-internal fun preprocessMarkdown(content: String): String {
+private fun codeRangesIn(content: String): List<IntRange> {
     val codeBlocks = mutableListOf<IntRange>()
     codeBlockRegex.findAll(content).forEach { match ->
         codeBlocks.add(match.range)
     }
+    return codeBlocks
+}
+
+private fun replaceCopyMarkers(content: String): Pair<String, List<CopyMarkerToken>> {
+    val codeBlocks = codeRangesIn(content)
+    fun inCodeBlock(index: Int): Boolean = codeBlocks.any { index in it }
+
+    val markers = mutableListOf<CopyMarkerToken>()
+    val result = copyMarkerRegex.replace(content) { match ->
+        if (inCodeBlock(match.range.first)) {
+            match.value
+        } else {
+            val copyText = match.groupValues[1].trim()
+            if (copyText.isBlank()) {
+                match.value
+            } else {
+                val placeholder = "HanakoCopyMarker${markers.size}"
+                markers += CopyMarkerToken(placeholder = placeholder, copyText = copyText)
+                placeholder
+            }
+        }
+    }
+
+    return result to markers
+}
+
+internal fun preprocessMarkdown(content: String): Pair<String, List<CopyMarkerToken>> {
+    val (copyPreprocessed, copyMarkers) = replaceCopyMarkers(content)
+    val codeBlocks = codeRangesIn(copyPreprocessed)
 
     fun inCodeBlock(index: Int): Boolean = codeBlocks.any { index in it }
 
-    var result = inlineLatexRegex.replace(content) { match ->
+    var result = inlineLatexRegex.replace(copyPreprocessed) { match ->
         if (inCodeBlock(match.range.first)) match.value else "${'$'}${match.groupValues[1]}${'$'}"
     }
     result = blockLatexRegex.replace(result) { match ->
         if (inCodeBlock(match.range.first)) match.value else "${'$'}${'$'}${match.groupValues[1]}${'$'}${'$'}"
     }
-    return result
+    return result to copyMarkers
 }
+
+internal data class CopyMarkerToken(
+    val placeholder: String,
+    val copyText: String
+)
 
 internal data class MarkdownParseResult(
     val preprocessed: String,
-    val astTree: ASTNode
+    val astTree: ASTNode,
+    val copyMarkers: List<CopyMarkerToken> = emptyList()
 )
 
 internal fun ASTNode.getText(text: String): String = text.substring(startOffset, endOffset)
@@ -53,10 +89,11 @@ internal fun ASTNode.findChildRecursive(vararg types: IElementType): ASTNode? {
 }
 
 internal fun parseMarkdown(content: String): MarkdownParseResult {
-    val preprocessed = preprocessMarkdown(content)
+    val (preprocessed, copyMarkers) = preprocessMarkdown(content)
     return MarkdownParseResult(
         preprocessed = preprocessed,
-        astTree = markdownParser.buildMarkdownTreeFromString(preprocessed)
+        astTree = markdownParser.buildMarkdownTreeFromString(preprocessed),
+        copyMarkers = copyMarkers
     )
 }
 

@@ -12,10 +12,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -36,6 +40,18 @@ fun ModelPickerDialog(
     val models by produceState(initialValue = emptyList<RemoteModelOption>(), provider.id) {
         value = runCatching { api.listModels(provider) }.getOrElse { emptyList() }
     }
+    var query by remember { mutableStateOf("") }
+    val filteredModels = remember(models, query) {
+        val normalizedQuery = query.trim()
+        if (normalizedQuery.isBlank()) {
+            models
+        } else {
+            models.filter { model ->
+                model.displayName.contains(normalizedQuery, ignoreCase = true) ||
+                    model.id.contains(normalizedQuery, ignoreCase = true)
+            }
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -52,11 +68,21 @@ fun ModelPickerDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(text = title)
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("搜索模型") },
+                    placeholder = { Text("按名称或 ID 搜索") },
+                    singleLine = true
+                )
 
                 if (models.isEmpty()) {
                     Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
                         CircularProgressIndicator()
                     }
+                } else if (filteredModels.isEmpty()) {
+                    Text("没有匹配的模型")
                 } else {
                     LazyColumn(
                         modifier = Modifier
@@ -64,7 +90,7 @@ fun ModelPickerDialog(
                             .heightIn(max = 360.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(models) { model ->
+                        items(filteredModels) { model ->
                             OutlinedButton(
                                 onClick = { onPick(model.id) },
                                 modifier = Modifier.fillMaxWidth()

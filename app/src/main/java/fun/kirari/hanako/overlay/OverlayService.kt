@@ -132,10 +132,6 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
     private fun observeSheetState() {
         serviceScope.launch {
             overlayViewModel.uiState.collect { state ->
-                Log.d(
-                    "OverlayService",
-                    "uiState sheetVisible=${state.sheetVisible} mode=${state.sheetMode} working=${state.working} ocr=${state.liveOcrText.length} answer=${state.liveAnswerText.length}"
-                )
                 if (state.sheetVisible) {
                     showOrUpdatePanel(state.sheetMode)
                 } else {
@@ -419,11 +415,9 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
                 startHeightPx = start,
                 endHeightPx = end,
                 durationMs = SheetAnimationDurationMs,
-                easing = ::easeOutCubic,
-                logLabel = "panel"
+                easing = ::easeOutCubic
             )
             updatePanelHeightAllowZero(end)
-            Log.d("OverlayService", "panel animation end height=$end")
             onEnd?.invoke()
         }
     }
@@ -432,30 +426,19 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         startHeightPx: Int,
         endHeightPx: Int,
         durationMs: Int,
-        easing: (Float) -> Float,
-        logLabel: String
+        easing: (Float) -> Float
     ) {
         val startTimeMs = android.os.SystemClock.uptimeMillis()
-        var loggedStart = false
-        var loggedMid = false
         while (currentCoroutineContext().isActive) {
             val elapsed = android.os.SystemClock.uptimeMillis() - startTimeMs
             val fraction = (elapsed.toFloat() / durationMs).coerceIn(0f, 1f)
             val eased = easing(fraction)
             val height = (startHeightPx + (endHeightPx - startHeightPx) * eased).roundToInt()
             updatePanelHeightAllowZero(height)
-            if (!loggedStart) {
-                Log.d("OverlayService", "$logLabel fraction=${"%.2f".format(fraction)} height=$height")
-                loggedStart = true
-            } else if (!loggedMid && fraction >= 0.5f) {
-                Log.d("OverlayService", "$logLabel fraction=${"%.2f".format(fraction)} height=$height")
-                loggedMid = true
-            }
             if (fraction >= 1f) break
             kotlinx.coroutines.delay(16L)
         }
         updatePanelHeightAllowZero(endHeightPx)
-        Log.d("OverlayService", "$logLabel fraction=1.00 height=$endHeightPx")
     }
 
     private fun updatePanelHeightAllowZero(heightPx: Int) {

@@ -1,6 +1,5 @@
 package `fun`.kirari.hanako.overlay
 
-import android.util.Log
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -10,7 +9,6 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +30,6 @@ internal fun OverlayPanel(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var modelPickerTarget by remember { mutableStateOf<ModelPurpose?>(null) }
-    LaunchedEffect(uiState.sheetMode, uiState.working, uiState.liveOcrText, uiState.liveAnswerText) {
-        Log.d(
-            "OverlayService",
-            "OverlayPanel compose mode=${uiState.sheetMode} working=${uiState.working} ocr=${uiState.liveOcrText.length} answer=${uiState.liveAnswerText.length}"
-        )
-    }
     when (uiState.sheetMode) {
         OverlaySheetMode.CROP -> {
             CropOverlaySheet(

@@ -1,5 +1,7 @@
 package `fun`.kirari.hanako.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
@@ -25,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.AlertDialog
@@ -290,7 +293,26 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
             }
         }
         item {
-            HistoryResultCard(title = "答案") {
+            HistoryResultCard(
+                title = "答案",
+                action = {
+                    TextButton(
+                        onClick = {
+                            copyToClipboard(context, "Hanako 原始答案", result.answer)
+                            Toast.makeText(context, "已复制原文", Toast.LENGTH_SHORT).show()
+                        },
+                        enabled = result.answer.isNotBlank()
+                    ) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.size(4.dp))
+                        Text("复制原文")
+                    }
+                }
+            ) {
                 if (result.answer.isNotBlank()) {
                     MarkdownLatexText(
                         content = result.answer,
@@ -333,6 +355,7 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
 @Composable
 private fun HistoryResultCard(
     title: String,
+    action: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Surface(
@@ -345,7 +368,14 @@ private fun HistoryResultCard(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium)
+                action?.invoke()
+            }
             content()
         }
     }
@@ -376,6 +406,11 @@ private fun formatHistorySize(charCount: Int): String {
     if (kb < 1024.0) return String.format("%.1fKB", kb)
     val mb = kb / 1024.0
     return String.format("%.1fMB", mb)
+}
+
+private fun copyToClipboard(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
 }
 
 private fun saveBitmapToPictures(context: Context, bitmap: Bitmap, fileName: String): Boolean {

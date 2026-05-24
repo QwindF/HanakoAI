@@ -14,6 +14,19 @@ class AiGateway(
     internal val sseClient = SseStreamClient(client)
     internal val JSON = "application/json; charset=utf-8".toMediaType()
 
+    private fun assistantPromptWithCopyMarker(systemPrompt: String): String {
+        val trimmed = systemPrompt.trim()
+        if (trimmed.isBlank()) return trimmed
+        return """
+            你可以在回答中插入如下格式的可复制文本块：
+            [copy:内容]
+            其中“内容”会显示为一个小标签，点击复制图标后会写入同样的文本到剪贴板。
+            对于问题的答案或用户需要填写到某个表单中的内容，你必须给出一键复制的标签。
+
+            $trimmed
+        """.trimIndent()
+    }
+
     suspend fun streamOcrThenChat(
         ocrProvider: ModelProviderConfig,
         ocrModel: String,
@@ -35,7 +48,7 @@ class AiGateway(
         val answer = streamText(
             provider = textProvider,
             model = textModel,
-            systemPrompt = assistant.systemPrompt,
+            systemPrompt = assistantPromptWithCopyMarker(assistant.systemPrompt),
             userPrompt = "以下是 OCR 结果，请完成任务：\n$ocrText",
             onDelta = onAnswerDelta
         )
@@ -52,7 +65,7 @@ class AiGateway(
         return streamVision(
             provider = provider,
             model = model,
-            systemPrompt = assistant.systemPrompt,
+            systemPrompt = assistantPromptWithCopyMarker(assistant.systemPrompt),
             userPrompt = "请直接基于图片内容完成任务。",
             imageBase64 = bitmap.toBase64Jpeg(),
             onDelta = onAnswerDelta
