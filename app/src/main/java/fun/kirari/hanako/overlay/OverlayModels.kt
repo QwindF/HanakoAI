@@ -2,6 +2,7 @@ package `fun`.kirari.hanako.overlay
 
 import android.graphics.Bitmap
 import androidx.compose.ui.unit.dp
+import `fun`.kirari.hanako.automation.BubbleDisplayState
 import `fun`.kirari.hanako.data.AppSettings
 import `fun`.kirari.hanako.data.ProcessingResult
 
@@ -38,7 +39,9 @@ internal data class OverlayUiState(
     val sheetMode: OverlaySheetMode = OverlaySheetMode.CROP,
     val launchMode: OverlayLaunchMode = OverlayLaunchMode.NORMAL,
     val autoRunState: AutoRunState = AutoRunState.IDLE,
-    val autoCopiedLabel: String? = null
+    val autoCopiedLabel: String? = null,
+    val bubbleDisplayState: BubbleDisplayState = BubbleDisplayState.IDLE,
+    val bubbleLetters: String? = null
 )
 
 internal fun easeOutCubic(fraction: Float): Float {

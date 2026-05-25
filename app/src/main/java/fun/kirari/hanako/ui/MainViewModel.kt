@@ -14,6 +14,7 @@ import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.SettingsStore
 import `fun`.kirari.hanako.data.defaultAssistant
 import `fun`.kirari.hanako.data.defaultProvider
+import `fun`.kirari.hanako.debug.AppDebugLogStore
 import `fun`.kirari.hanako.data.modelSelectionFor
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -188,6 +189,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 history = (listOf(result) + it.history).take(20)
             ) }
         }
+    }
+
+    fun clearDebugLogs() {
+        AppDebugLogStore.clear()
     }
 
     private fun remapSelection(

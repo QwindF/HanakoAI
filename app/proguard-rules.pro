@@ -24,3 +24,6 @@
 -keepattributes KotlinMetadata,InnerClasses,EnclosingMethod,Signature
 -keep class kotlinx.serialization.** { *; }
 -keep class **$$serializer { *; }
+
+# Preserve Android Log calls in release builds for remote troubleshooting.
+-keep class android.util.Log { *; }

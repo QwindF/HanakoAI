@@ -116,9 +116,23 @@ data class ProcessingResult(
     val modelSummary: String = "",
     val extractedText: String = "",
     val answer: String = "",
+    val automationThought: String = "",
+    val automationAction: AutomationActionRecord? = null,
     val screenshotBase64: String? = null,
     val createdAtMillis: Long = System.currentTimeMillis()
 )
+
+@Serializable
+data class AutomationActionRecord(
+    val type: AutomationActionType,
+    val text: String
+)
+
+@Serializable
+enum class AutomationActionType {
+    SET_CLIPBOARD,
+    SHOW_BUBBLE_LETTERS
+}
 
 fun defaultProvider(): ModelProviderConfig = ModelProviderConfig()
 

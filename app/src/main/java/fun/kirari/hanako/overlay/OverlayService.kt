@@ -1,6 +1,7 @@
 package `fun`.kirari.hanako.overlay
 
 import android.app.Service
+import android.animation.ObjectAnimator
 import android.content.res.ColorStateList
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -14,7 +15,6 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.util.DisplayMetrics
-import android.util.Log
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -24,7 +24,9 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
+import android.widget.TextView
 import android.widget.Toast
+import `fun`.kirari.hanako.automation.BubbleDisplayState
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -40,6 +42,7 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import `fun`.kirari.hanako.R
 import `fun`.kirari.hanako.capture.MediaProjectionForegroundService
 import `fun`.kirari.hanako.capture.ProjectionPermissionActivity
+import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,6 +55,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStateRegistryOwner {
+    private val logTag = "HanakoOverlaySvc"
     private val dispatcher = ServiceLifecycleDispatcher(this)
     private val savedStateRegistryController = SavedStateRegistryController.create(this)
     private val serviceViewModelStore = ViewModelStore()
@@ -70,8 +74,10 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
     private var bubbleView: FrameLayout? = null
     private var bubbleSurfaceView: FrameLayout? = null
     private var bubbleIconView: ImageView? = null
+    private var bubbleTextView: TextView? = null
     private var bubbleSpinnerView: ProgressBar? = null
     private var bubbleColorAnimator: ValueAnimator? = null
+    private var bubbleRotateAnimator: ObjectAnimator? = null
     private var bubbleCompletionResetJob: Job? = null
     private var lastHandledCompletionId: String? = null
     private var panelView: FrameLayout? = null
@@ -114,7 +120,7 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
             showBubble()
             observeUiState()
         }.onFailure {
-            Log.e("OverlayService", "Overlay initialization failed", it)
+            AppDebugLogStore.e(logTag, "Overlay initialization failed", it)
             stopSelf()
         }
     }
@@ -149,7 +155,10 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         bubbleView = null
         bubbleSurfaceView = null
         bubbleIconView = null
+        bubbleTextView = null
         bubbleSpinnerView = null
+        bubbleRotateAnimator?.cancel()
+        bubbleRotateAnimator = null
         serviceViewModelStore.clear()
         serviceScope.cancel()
         super.onDestroy()
@@ -161,7 +170,16 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
     private fun observeUiState() {
         serviceScope.launch {
             overlayViewModel.uiState.collect { state ->
-                updateBubbleAppearance(state.launchMode, state.autoRunState)
+                AppDebugLogStore.d(
+                    logTag,
+                    "uiState launchMode=${state.launchMode} autoRunState=${state.autoRunState} bubble=${state.bubbleDisplayState} letters=${state.bubbleLetters} sheetVisible=${state.sheetVisible} working=${state.working} resultId=${state.result?.id} error=${state.error}"
+                )
+                updateBubbleAppearance(
+                    launchMode = state.launchMode,
+                    autoRunState = state.autoRunState,
+                    bubbleDisplayState = state.bubbleDisplayState,
+                    bubbleLetters = state.bubbleLetters
+                )
                 if (state.sheetVisible) {
                     showOrUpdatePanel(state.sheetMode)
                 } else {
@@ -170,6 +188,10 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
                 if (state.autoRunState == AutoRunState.COMPLETED) {
                     val completionId = state.result?.id ?: state.autoCopiedLabel
                     if (completionId != null && completionId != lastHandledCompletionId) {
+                        AppDebugLogStore.i(
+                            logTag,
+                            "auto completion handled completionId=$completionId copiedLabel=${state.autoCopiedLabel} bubble=${state.bubbleDisplayState}"
+                        )
                         lastHandledCompletionId = completionId
                         state.autoCopiedLabel?.let(::copyToClipboard)
                         if (state.settings.automation.completionNotificationEnabled) {
@@ -182,6 +204,9 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
                         }
                     }
                 } else {
+                    if (bubbleCompletionResetJob != null) {
+                        AppDebugLogStore.d(logTag, "auto completion reset job cancelled because state=${state.autoRunState}")
+                    }
                     bubbleCompletionResetJob?.cancel()
                     bubbleCompletionResetJob = null
                 }
@@ -219,9 +244,17 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
             layoutParams = FrameLayout.LayoutParams(iconSizePx, iconSizePx, Gravity.CENTER)
             scaleType = ImageView.ScaleType.CENTER_INSIDE
         }
+        val textView = TextView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(surfaceSizePx, surfaceSizePx, Gravity.CENTER)
+            gravity = Gravity.CENTER
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            visibility = View.GONE
+        }
         val surfaceView = FrameLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(surfaceSizePx, surfaceSizePx, Gravity.CENTER)
             addView(iconView)
+            addView(textView)
         }
         val view = FrameLayout(this).apply {
             layoutParams = FrameLayout.LayoutParams(rootSizePx, rootSizePx)
@@ -277,6 +310,8 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
                     MotionEvent.ACTION_UP -> {
                         removeCallbacks(longPressRunnable)
                         if (!dragging && !longPressTriggered) {
+                            AppDebugLogStore.i(logTag, "bubble tapped bubbleState=${overlayViewModel.uiState.value.bubbleDisplayState} launchMode=${overlayViewModel.uiState.value.launchMode}")
+                            overlayViewModel.onBubbleTappedAfterLettersShown()
                             overlayViewModel.openCropSheet()
                         }
                         true
@@ -293,6 +328,7 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         }
         bubbleSurfaceView = surfaceView
         bubbleIconView = iconView
+        bubbleTextView = textView
         bubbleSpinnerView = spinnerView
         windowManager.addView(view, params)
         bubbleView = view
@@ -300,6 +336,7 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
     }
 
     private fun copyToClipboard(label: String) {
+        AppDebugLogStore.i(logTag, "copyToClipboard text=$label")
         val clipboard = getSystemService(ClipboardManager::class.java) ?: return
         clipboard.setPrimaryClip(ClipData.newPlainText("Hanako Auto Copy", label))
         Toast.makeText(this, "已复制到剪贴板", Toast.LENGTH_SHORT).show()
@@ -564,10 +601,17 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
 
     private fun updateBubbleAppearance(
         launchMode: OverlayLaunchMode,
-        autoRunState: AutoRunState
+        autoRunState: AutoRunState,
+        bubbleDisplayState: BubbleDisplayState = BubbleDisplayState.IDLE,
+        bubbleLetters: String? = null
     ) {
+        AppDebugLogStore.d(
+            logTag,
+            "updateBubbleAppearance launchMode=$launchMode autoRunState=$autoRunState bubbleDisplayState=$bubbleDisplayState letters=$bubbleLetters"
+        )
         val bubble = bubbleSurfaceView ?: return
         val icon = bubbleIconView ?: return
+        val textView = bubbleTextView
         val spinner = bubbleSpinnerView
         val appearance = when {
             launchMode == OverlayLaunchMode.NORMAL -> BubbleAppearance(
@@ -575,28 +619,54 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
                 iconTint = Color.parseColor("#381E72"),
                 iconRes = R.drawable.ic_bubble_crop,
                 spinnerColor = Color.parseColor("#6750A4"),
-                showSpinner = false
+                showSpinner = false,
+                letters = null,
+                rotate = false
             )
-            autoRunState == AutoRunState.RUNNING -> BubbleAppearance(
+            bubbleDisplayState == BubbleDisplayState.RUNNING || autoRunState == AutoRunState.RUNNING -> BubbleAppearance(
                 backgroundColor = Color.parseColor("#EADDFF"),
                 iconTint = Color.parseColor("#4F378B"),
                 iconRes = R.drawable.ic_bubble_auto,
                 spinnerColor = Color.parseColor("#6750A4"),
-                showSpinner = true
+                showSpinner = true,
+                letters = null,
+                rotate = false
             )
-            autoRunState == AutoRunState.COMPLETED -> BubbleAppearance(
+            bubbleDisplayState == BubbleDisplayState.COPIED || (autoRunState == AutoRunState.COMPLETED && bubbleLetters == null) -> BubbleAppearance(
                 backgroundColor = Color.parseColor("#D3E3FD"),
                 iconTint = Color.parseColor("#0B57D0"),
                 iconRes = R.drawable.ic_bubble_clipboard,
                 spinnerColor = Color.parseColor("#0B57D0"),
-                showSpinner = false
+                showSpinner = false,
+                letters = null,
+                rotate = false
+            )
+            bubbleDisplayState == BubbleDisplayState.SHOWING_LETTERS -> BubbleAppearance(
+                backgroundColor = Color.parseColor("#E8F0FE"),
+                iconTint = Color.parseColor("#0B57D0"),
+                iconRes = 0,
+                spinnerColor = Color.parseColor("#0B57D0"),
+                showSpinner = false,
+                letters = bubbleLetters,
+                rotate = false
+            )
+            bubbleDisplayState == BubbleDisplayState.SHOWING_LETTERS_PENDING_RESET -> BubbleAppearance(
+                backgroundColor = Color.parseColor("#F1F3F4"),
+                iconTint = Color.parseColor("#5F6368"),
+                iconRes = R.drawable.ic_bubble_auto,
+                spinnerColor = Color.parseColor("#5F6368"),
+                showSpinner = false,
+                letters = null,
+                rotate = true
             )
             else -> BubbleAppearance(
                 backgroundColor = Color.parseColor("#F3EDF7"),
                 iconTint = Color.parseColor("#4A4458"),
                 iconRes = R.drawable.ic_bubble_auto,
                 spinnerColor = Color.parseColor("#6750A4"),
-                showSpinner = false
+                showSpinner = false,
+                letters = null,
+                rotate = false
             )
         }
         val existing = bubble.background as? GradientDrawable
@@ -615,31 +685,40 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
             start()
         }
 
-        if (icon.tag != appearance.iconRes) {
-            icon.animate().cancel()
-            icon.animate()
-                .alpha(0f)
-                .scaleX(0.82f)
-                .scaleY(0.82f)
-                .setDuration(120L)
-                .withEndAction {
-                    icon.setImageDrawable(ContextCompat.getDrawable(this, appearance.iconRes))
-                    icon.imageTintList = ColorStateList.valueOf(appearance.iconTint)
-                    icon.tag = appearance.iconRes
-                    icon.animate()
-                        .alpha(1f)
-                        .scaleX(1f)
-                        .scaleY(1f)
-                        .setDuration(180L)
-                        .start()
-                }
-                .start()
+        if (appearance.letters != null) {
+            textView?.text = appearance.letters
+            textView?.setTextColor(appearance.iconTint)
+            textView?.visibility = View.VISIBLE
+            icon.visibility = View.GONE
         } else {
-            icon.setImageDrawable(ContextCompat.getDrawable(this, appearance.iconRes))
-            icon.imageTintList = ColorStateList.valueOf(appearance.iconTint)
-            icon.alpha = 1f
-            icon.scaleX = 1f
-            icon.scaleY = 1f
+            textView?.visibility = View.GONE
+            icon.visibility = View.VISIBLE
+            if (icon.tag != appearance.iconRes) {
+                icon.animate().cancel()
+                icon.animate()
+                    .alpha(0f)
+                    .scaleX(0.82f)
+                    .scaleY(0.82f)
+                    .setDuration(120L)
+                    .withEndAction {
+                        icon.setImageDrawable(ContextCompat.getDrawable(this, appearance.iconRes))
+                        icon.imageTintList = ColorStateList.valueOf(appearance.iconTint)
+                        icon.tag = appearance.iconRes
+                        icon.animate()
+                            .alpha(1f)
+                            .scaleX(1f)
+                            .scaleY(1f)
+                            .setDuration(180L)
+                            .start()
+                    }
+                    .start()
+            } else {
+                icon.setImageDrawable(ContextCompat.getDrawable(this, appearance.iconRes))
+                icon.imageTintList = ColorStateList.valueOf(appearance.iconTint)
+                icon.alpha = 1f
+                icon.scaleX = 1f
+                icon.scaleY = 1f
+            }
         }
 
         spinner?.apply {
@@ -656,6 +735,25 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
                     .start()
             }
         }
+
+        if (appearance.rotate) {
+            if (bubbleRotateAnimator?.isRunning != true) {
+                AppDebugLogStore.i(logTag, "starting bubble rotate animation")
+                bubbleRotateAnimator?.cancel()
+                bubbleRotateAnimator = ObjectAnimator.ofFloat(bubble, View.ROTATION, bubble.rotation, bubble.rotation + 360f).apply {
+                    duration = 900L
+                    repeatCount = ObjectAnimator.INFINITE
+                    start()
+                }
+            }
+        } else {
+            if (bubbleRotateAnimator != null) {
+                AppDebugLogStore.i(logTag, "stopping bubble rotate animation")
+            }
+            bubbleRotateAnimator?.cancel()
+            bubbleRotateAnimator = null
+            bubble.rotation = 0f
+        }
     }
 
     private data class BubbleAppearance(
@@ -663,7 +761,9 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         val iconTint: Int,
         val iconRes: Int,
         val spinnerColor: Int,
-        val showSpinner: Boolean
+        val showSpinner: Boolean,
+        val letters: String?,
+        val rotate: Boolean
     )
 
     private fun dismissPanel() {

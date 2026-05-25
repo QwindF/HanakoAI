@@ -1,5 +1,6 @@
 package `fun`.kirari.hanako.network
 
+import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -16,6 +17,7 @@ import kotlin.coroutines.resumeWithException
 internal class SseStreamClient(
     private val client: OkHttpClient
 ) {
+    private val tag = "HanakoSseClient"
     suspend fun stream(
         request: Request,
         onEvent: (eventSource: EventSource, type: String?, id: String?, data: String) -> String?,
@@ -24,6 +26,7 @@ internal class SseStreamClient(
         suspendCancellableCoroutine { cont ->
             val builder = StringBuilder()
             val finished = AtomicBoolean(false)
+            var eventCount = 0
 
             fun finish(block: () -> Unit) {
                 if (finished.compareAndSet(false, true)) {
@@ -32,6 +35,10 @@ internal class SseStreamClient(
             }
 
             val listener = object : EventSourceListener() {
+                override fun onOpen(eventSource: EventSource, response: Response) {
+                    AppDebugLogStore.i(tag, "stream opened code=${response.code} url=${request.url}")
+                }
+
                 override fun onEvent(
                     eventSource: EventSource,
                     id: String?,
@@ -39,6 +46,10 @@ internal class SseStreamClient(
                     data: String
                 ) {
                     try {
+                        eventCount += 1
+                        if (eventCount <= 5 || eventCount % 25 == 0) {
+                            AppDebugLogStore.d(tag, "stream event#$eventCount type=$type id=$id dataLength=${data.length}")
+                        }
                         val delta = onEvent(eventSource, type, id, data)
                         if (!delta.isNullOrEmpty()) {
                             builder.append(delta)
@@ -51,6 +62,7 @@ internal class SseStreamClient(
                 }
 
                 override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
+                    AppDebugLogStore.e(tag, "stream failure code=${response?.code} url=${request.url}", t)
                     finish {
                         cont.resumeWithException(
                             t ?: IllegalStateException(
@@ -61,6 +73,7 @@ internal class SseStreamClient(
                 }
 
                 override fun onClosed(eventSource: EventSource) {
+                    AppDebugLogStore.i(tag, "stream closed totalEvents=$eventCount outputLength=${builder.length} url=${request.url}")
                     finish { cont.resume(builder.toString()) }
                 }
             }

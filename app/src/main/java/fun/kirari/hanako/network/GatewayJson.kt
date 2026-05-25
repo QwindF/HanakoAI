@@ -35,7 +35,7 @@ internal fun extractOpenAiChatDelta(root: JsonObject): String {
     return extractOpenAiContent(delta["content"])
 }
 
-private fun extractOpenAiContent(content: JsonElement?): String {
+internal fun extractOpenAiContent(content: JsonElement?): String {
     return when (content) {
         is JsonPrimitive -> content.contentOrNull.orEmpty()
         is JsonArray -> content.joinToString(separator = "") { item ->

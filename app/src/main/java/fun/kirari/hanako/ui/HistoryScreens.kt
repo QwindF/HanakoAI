@@ -53,6 +53,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.data.AppSettings
+import `fun`.kirari.hanako.data.AutomationActionType
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.decodeHistoryBitmap
@@ -192,7 +193,7 @@ private fun HistoryListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = result.answer.ifBlank { "暂无回答" },
+                    text = historyPreviewText(result),
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -294,34 +295,76 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
                 }
             }
         }
-        item {
-            HistoryResultCard(
-                title = "答案",
-                action = {
-                    TextButton(
-                        onClick = {
-                            copyToClipboard(context, "Hanako 原始答案", result.answer)
-                            Toast.makeText(context, "已复制原文", Toast.LENGTH_SHORT).show()
-                        },
-                        enabled = result.answer.isNotBlank()
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp)
+        if (result.automationAction != null || result.automationThought.isNotBlank()) {
+            item {
+                HistoryResultCard(title = "思考过程") {
+                    if (result.automationThought.isNotBlank()) {
+                        MarkdownLatexText(
+                            content = result.automationThought,
+                            modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(modifier = Modifier.size(4.dp))
-                        Text("复制原文")
+                    } else {
+                        Text("暂无内容")
                     }
                 }
-            ) {
-                if (result.answer.isNotBlank()) {
-                    MarkdownLatexText(
-                        content = result.answer,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    Text("暂无内容")
+            }
+            item {
+                val actionText = result.automationAction?.text.orEmpty()
+                HistoryResultCard(
+                    title = "工具调用",
+                    action = {
+                        TextButton(
+                            onClick = {
+                                copyToClipboard(context, "Hanako 自动模式工具内容", actionText)
+                                Toast.makeText(context, "已复制工具内容", Toast.LENGTH_SHORT).show()
+                            },
+                            enabled = actionText.isNotBlank()
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text("复制内容")
+                        }
+                    }
+                ) {
+                    Text("调用了工具：${automationActionLabel(result)}")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(actionText.ifBlank { "暂无内容" })
+                }
+            }
+        } else {
+            item {
+                HistoryResultCard(
+                    title = "答案",
+                    action = {
+                        TextButton(
+                            onClick = {
+                                copyToClipboard(context, "Hanako 原始答案", result.answer)
+                                Toast.makeText(context, "已复制原文", Toast.LENGTH_SHORT).show()
+                            },
+                            enabled = result.answer.isNotBlank()
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text("复制原文")
+                        }
+                    }
+                ) {
+                    if (result.answer.isNotBlank()) {
+                        MarkdownLatexText(
+                            content = result.answer,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Text("暂无内容")
+                    }
                 }
             }
         }
@@ -351,6 +394,22 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
                 }
             }
         )
+    }
+}
+
+private fun historyPreviewText(result: ProcessingResult): String {
+    return when {
+        result.automationAction != null -> "${automationActionLabel(result)}：${result.automationAction.text}"
+        result.answer.isNotBlank() -> result.answer
+        else -> "暂无回答"
+    }
+}
+
+private fun automationActionLabel(result: ProcessingResult): String {
+    return when (result.automationAction?.type) {
+        AutomationActionType.SET_CLIPBOARD -> "设置剪贴板"
+        AutomationActionType.SHOW_BUBBLE_LETTERS -> "显示悬浮球字母"
+        null -> "未调用工具"
     }
 }
 

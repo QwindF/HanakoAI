@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -12,6 +13,7 @@ import kotlinx.serialization.json.Json
 private val Context.dataStore by preferencesDataStore(name = "hanako_settings")
 
 class SettingsStore(private val context: Context) {
+    private val tag = "HanakoSettingsStore"
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -34,7 +36,12 @@ class SettingsStore(private val context: Context) {
             } else {
                 runCatching { json.decodeFromString<AppSettings>(currentRaw).normalize() }.getOrElse { AppSettings().normalize() }
             }
-            preferences[SETTINGS_KEY] = json.encodeToString(AppSettings.serializer(), transform(current).normalize())
+            val updated = transform(current).normalize()
+            AppDebugLogStore.i(
+                tag,
+                "update lastResultId=${updated.lastResult?.id} historySize=${updated.history.size} latestHistoryId=${updated.history.firstOrNull()?.id}"
+            )
+            preferences[SETTINGS_KEY] = json.encodeToString(AppSettings.serializer(), updated)
         }
     }
 

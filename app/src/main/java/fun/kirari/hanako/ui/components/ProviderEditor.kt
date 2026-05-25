@@ -28,14 +28,19 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.data.ModelProviderConfig
@@ -43,6 +48,7 @@ import `fun`.kirari.hanako.data.ProviderKind
 import `fun`.kirari.hanako.data.displayName
 import `fun`.kirari.hanako.data.parseImportedProviderConfig
 import `fun`.kirari.hanako.data.requestPreviewUrl
+import kotlinx.coroutines.delay
 
 @Composable
 fun ProviderEditor(
@@ -109,12 +115,14 @@ fun ProviderEditor(
         )
 
         EditableField(
+            fieldKey = "${provider.id}:name",
             value = provider.name,
             onCommit = { onChange(provider.copy(name = it)) },
             label = "提供方名称"
         )
 
         EditableField(
+            fieldKey = "${provider.id}:baseUrl",
             value = provider.baseUrl,
             onCommit = { onChange(provider.copy(baseUrl = it)) },
             label = "Base URL"
@@ -136,6 +144,7 @@ fun ProviderEditor(
         }
 
         EditableField(
+            fieldKey = "${provider.id}:apiKey",
             value = provider.apiKey,
             onCommit = { onChange(provider.copy(apiKey = it)) },
             label = "API Key",
@@ -186,16 +195,42 @@ private fun ProviderTypeSelector(
 
 @Composable
 private fun EditableField(
+    fieldKey: String,
     value: String,
     onCommit: (String) -> Unit,
     label: String,
     password: Boolean = false
 ) {
     var visible by remember { mutableStateOf(false) }
+    var textFieldValue by rememberSaveable(fieldKey, stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(value, TextRange(value.length)))
+    }
+    var isFocused by remember(fieldKey) { mutableStateOf(false) }
+
+    LaunchedEffect(fieldKey, value, isFocused) {
+        if (!isFocused && value != textFieldValue.text) {
+            textFieldValue = TextFieldValue(value, TextRange(value.length))
+        }
+    }
+
+    LaunchedEffect(fieldKey, textFieldValue.text) {
+        delay(250)
+        if (textFieldValue.text != value) {
+            onCommit(textFieldValue.text)
+        }
+    }
+
     OutlinedTextField(
-        value = value,
-        onValueChange = onCommit,
-        modifier = Modifier.fillMaxWidth(),
+        value = textFieldValue,
+        onValueChange = { textFieldValue = it },
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focusState ->
+                isFocused = focusState.isFocused
+                if (!focusState.isFocused && textFieldValue.text != value) {
+                    onCommit(textFieldValue.text)
+                }
+            },
         label = { Text(label) },
         visualTransformation = if (password && !visible) PasswordVisualTransformation() else VisualTransformation.None,
         shape = RoundedCornerShape(16.dp),

@@ -100,6 +100,7 @@ private const val ROUTE_SETTINGS_MODEL = "settings_model"
 private const val ROUTE_SETTINGS_ASSISTANT = "settings_assistant"
 private const val ROUTE_SETTINGS_ASSISTANT_DETAIL = "settings_assistant_detail"
 private const val ROUTE_SETTINGS_AUTOMATION = "settings_automation"
+private const val ROUTE_SETTINGS_DEBUG_LOGS = "settings_debug_logs"
 private const val ARG_PROVIDER_ID = "providerId"
 private const val ARG_ASSISTANT_ID = "assistantId"
 private const val ARG_HISTORY_ID = "historyId"
@@ -116,6 +117,7 @@ private fun appTitle(route: String?, currentScreen: Screen): String = when (rout
     ROUTE_SETTINGS_MODEL -> "模型设置"
     ROUTE_SETTINGS_ASSISTANT -> "助手配置"
     ROUTE_SETTINGS_AUTOMATION -> "自动模式"
+    ROUTE_SETTINGS_DEBUG_LOGS -> "调试日志"
     null -> currentScreen.title
     else -> when {
         route.startsWith("$ROUTE_HANAKO_HISTORY_DETAIL/") -> "历史详情"
@@ -279,7 +281,8 @@ fun HanakoApp(viewModel: MainViewModel) {
                                 onNavigateProvider = { navController.navigate(ROUTE_SETTINGS_PROVIDER) },
                                 onNavigateModel = { navController.navigate(ROUTE_SETTINGS_MODEL) },
                                 onNavigateAssistant = { navController.navigate(ROUTE_SETTINGS_ASSISTANT) },
-                                onNavigateAutomation = { navController.navigate(ROUTE_SETTINGS_AUTOMATION) }
+                                onNavigateAutomation = { navController.navigate(ROUTE_SETTINGS_AUTOMATION) },
+                                onNavigateDebugLogs = { navController.navigate(ROUTE_SETTINGS_DEBUG_LOGS) }
                             )
                         }
                     )
@@ -356,6 +359,11 @@ fun HanakoApp(viewModel: MainViewModel) {
                                 it.copy(completionNotificationEnabled = enabled)
                             }
                         }
+                    )
+                }
+                composable(ROUTE_SETTINGS_DEBUG_LOGS) {
+                    DebugLogScreen(
+                        onClearLogs = viewModel::clearDebugLogs
                     )
                 }
             }

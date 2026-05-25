@@ -1,8 +1,11 @@
 package `fun`.kirari.hanako.network
 
 import android.graphics.Bitmap
+import `fun`.kirari.hanako.automation.AutomationResult
+import `fun`.kirari.hanako.automation.automationSystemPrompt
 import `fun`.kirari.hanako.data.AssistantPreset
 import `fun`.kirari.hanako.data.ModelProviderConfig
+import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -11,6 +14,7 @@ class AiGateway(
     private val client: OkHttpClient = OkHttpClient(),
     internal val json: Json = Json { ignoreUnknownKeys = true }
 ) {
+    private val tag = "HanakoAiGateway"
     internal val sseClient = SseStreamClient(client)
     internal val JSON = "application/json; charset=utf-8".toMediaType()
 
@@ -27,20 +31,6 @@ class AiGateway(
         """.trimIndent()
     }
 
-    private fun assistantPromptForAutoCopy(systemPrompt: String): String {
-        val trimmed = systemPrompt.trim()
-        return """
-            你将处理整张屏幕截图。
-            先输出简短的文本分析过程，帮助用户理解你的判断；不要省略这部分。
-            分析过程只能使用普通文本，不能出现 [copy:...] 标签示例或变体。
-            最后一行必须输出且只能输出一个格式严格为 [copy:标签内容] 的标签。
-            标签内容应直接可供用户复制使用，例如填入对应的表单或作业答案框。
-            除最后一行外，前文不要再出现任何方括号复制标签。
-
-            ${trimmed.ifBlank { "请根据截图内容生成最合适的一段可复制文本。" }}
-        """.trimIndent()
-    }
-
     suspend fun streamOcrThenChat(
         ocrProvider: ModelProviderConfig,
         ocrModel: String,
@@ -51,6 +41,7 @@ class AiGateway(
         onOcrDelta: (String) -> Unit,
         onAnswerDelta: (String) -> Unit
     ): Pair<String, String> {
+        AppDebugLogStore.i(tag, "streamOcrThenChat start ocrModel=$ocrModel textModel=$textModel bitmap=${bitmap.width}x${bitmap.height}")
         val ocrText = streamVision(
             provider = ocrProvider,
             model = ocrModel,
@@ -66,10 +57,11 @@ class AiGateway(
             userPrompt = "以下是 OCR 结果，请完成任务：\n$ocrText",
             onDelta = onAnswerDelta
         )
+        AppDebugLogStore.i(tag, "streamOcrThenChat success ocrLength=${ocrText.length} answerLength=${answer.length}")
         return ocrText to answer
     }
 
-    suspend fun streamOcrThenAutoCopy(
+    suspend fun streamOcrThenAutomation(
         ocrProvider: ModelProviderConfig,
         ocrModel: String,
         textProvider: ModelProviderConfig,
@@ -77,8 +69,9 @@ class AiGateway(
         assistant: AssistantPreset,
         bitmap: Bitmap,
         onOcrDelta: (String) -> Unit,
-        onAnswerDelta: (String) -> Unit
-    ): Pair<String, String> {
+        onThoughtDelta: (String) -> Unit
+    ): Pair<String, AutomationResult> {
+        AppDebugLogStore.i(tag, "streamOcrThenAutomation start ocrModel=$ocrModel textModel=$textModel bitmap=${bitmap.width}x${bitmap.height}")
         val ocrText = streamVision(
             provider = ocrProvider,
             model = ocrModel,
@@ -87,12 +80,17 @@ class AiGateway(
             imageBase64 = bitmap.toBase64Jpeg(),
             onDelta = onOcrDelta
         )
-        val answer = streamText(
+        val answer = streamAutomation(
             provider = textProvider,
             model = textModel,
-            systemPrompt = assistantPromptForAutoCopy(assistant.textPrompt),
-            userPrompt = "以下是 OCR 结果。请先输出简短分析，最后一行再生成唯一的 [copy:标签内容]：\n$ocrText",
-            onDelta = onAnswerDelta
+            systemPrompt = automationSystemPrompt(assistant.textPrompt),
+            userPrompt = "以下是 OCR 结果，请先输出思考过程，再通过一次工具调用给出自动模式动作：\n$ocrText",
+            imageBase64 = null,
+            onThoughtDelta = onThoughtDelta
+        )
+        AppDebugLogStore.i(
+            tag,
+            "streamOcrThenAutomation success ocrLength=${ocrText.length} thoughtLength=${answer.thought.length} action=${answer.action.type} actionText=${answer.action.text}"
         )
         return ocrText to answer
     }
@@ -104,7 +102,8 @@ class AiGateway(
         bitmap: Bitmap,
         onAnswerDelta: (String) -> Unit
     ): String {
-        return streamVision(
+        AppDebugLogStore.i(tag, "streamVisionDirect start visionModel=$model bitmap=${bitmap.width}x${bitmap.height}")
+        val answer = streamVision(
             provider = provider,
             model = model,
             systemPrompt = assistantPromptWithCopyMarker(assistant.visionPrompt),
@@ -112,22 +111,30 @@ class AiGateway(
             imageBase64 = bitmap.toBase64Jpeg(),
             onDelta = onAnswerDelta
         )
+        AppDebugLogStore.i(tag, "streamVisionDirect success answerLength=${answer.length}")
+        return answer
     }
 
-    suspend fun streamAutoCopy(
+    suspend fun streamAutomationDirect(
         provider: ModelProviderConfig,
         model: String,
         assistant: AssistantPreset,
         bitmap: Bitmap,
-        onAnswerDelta: (String) -> Unit
-    ): String {
-        return streamVision(
+        onThoughtDelta: (String) -> Unit
+    ): AutomationResult {
+        AppDebugLogStore.i(tag, "streamAutomationDirect start visionModel=$model bitmap=${bitmap.width}x${bitmap.height}")
+        val result = streamAutomation(
             provider = provider,
             model = model,
-            systemPrompt = assistantPromptForAutoCopy(assistant.visionPrompt),
-            userPrompt = "请先根据整张屏幕截图输出简短分析，最后一行再生成唯一的 [copy:标签内容]。",
+            systemPrompt = automationSystemPrompt(assistant.visionPrompt),
+            userPrompt = "请根据整张屏幕截图先输出思考过程，再通过一次工具调用给出自动模式动作。",
             imageBase64 = bitmap.toBase64Jpeg(),
-            onDelta = onAnswerDelta
+            onThoughtDelta = onThoughtDelta
         )
+        AppDebugLogStore.i(
+            tag,
+            "streamAutomationDirect success thoughtLength=${result.thought.length} action=${result.action.type} actionText=${result.action.text}"
+        )
+        return result
     }
 }

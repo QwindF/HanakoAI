@@ -2,11 +2,12 @@ package `fun`.kirari.hanako.overlay
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import `fun`.kirari.hanako.automation.BubbleDisplayState
 import `fun`.kirari.hanako.capture.ProjectionSessionManager
+import `fun`.kirari.hanako.data.AutomationActionType
 import `fun`.kirari.hanako.data.ModelPurpose
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
@@ -15,6 +16,7 @@ import `fun`.kirari.hanako.data.resolveModelName
 import `fun`.kirari.hanako.data.resolveModelProvider
 import `fun`.kirari.hanako.data.SettingsStore
 import `fun`.kirari.hanako.data.toHistoryBase64
+import `fun`.kirari.hanako.debug.AppDebugLogStore
 import `fun`.kirari.hanako.network.AiGateway
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -29,6 +31,7 @@ internal class OverlayViewModel(
     private val store: SettingsStore,
     private val gateway: AiGateway
 ) : ViewModel() {
+    private val tag = "HanakoOverlayVM"
     private val _uiState = MutableStateFlow(OverlayUiState())
     val uiState: StateFlow<OverlayUiState> = _uiState.asStateFlow()
 
@@ -41,18 +44,23 @@ internal class OverlayViewModel(
     }
 
     fun setLaunchMode(mode: OverlayLaunchMode) {
+        AppDebugLogStore.i(tag, "setLaunchMode mode=$mode")
         _uiState.update { state ->
             state.copy(
                 launchMode = mode,
                 autoRunState = if (mode == OverlayLaunchMode.NORMAL) AutoRunState.IDLE else state.autoRunState,
                 autoCopiedLabel = if (mode == OverlayLaunchMode.NORMAL) null else state.autoCopiedLabel,
+                bubbleDisplayState = if (mode == OverlayLaunchMode.NORMAL) BubbleDisplayState.IDLE else state.bubbleDisplayState,
+                bubbleLetters = if (mode == OverlayLaunchMode.NORMAL) null else state.bubbleLetters,
                 error = null
             )
         }
     }
 
     fun openCropSheet() {
+        AppDebugLogStore.i(tag, "openCropSheet launchMode=${_uiState.value.launchMode}")
         if (_uiState.value.launchMode == OverlayLaunchMode.AUTO) {
+            AppDebugLogStore.i(tag, "openCropSheet delegated to processFullScreen for auto mode")
             processFullScreen()
             return
         }
@@ -60,6 +68,7 @@ internal class OverlayViewModel(
             runCatching {
                 withContext(Dispatchers.IO) { ProjectionSessionManager.captureLatestBitmap() }
             }.onSuccess { bitmap ->
+                AppDebugLogStore.i(tag, "openCropSheet capture success width=${bitmap.width} height=${bitmap.height}")
                 _uiState.update {
                     it.copy(
                         screenshot = bitmap,
@@ -72,11 +81,13 @@ internal class OverlayViewModel(
                         sheetVisible = true,
                         sheetMode = OverlaySheetMode.CROP,
                         autoRunState = AutoRunState.IDLE,
-                        autoCopiedLabel = null
+                        autoCopiedLabel = null,
+                        bubbleDisplayState = BubbleDisplayState.IDLE,
+                        bubbleLetters = null
                     )
                 }
             }.onFailure { error ->
-                Log.e("OverlayService", "openCropSheet failed", error)
+                AppDebugLogStore.e(tag, "openCropSheet failed", error)
                 _uiState.update {
                     it.copy(
                         error = error.message ?: "截屏失败",
@@ -89,6 +100,7 @@ internal class OverlayViewModel(
     }
 
     fun processFullScreen() {
+        AppDebugLogStore.i(tag, "processFullScreen start launchMode=${_uiState.value.launchMode}")
         viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -99,15 +111,18 @@ internal class OverlayViewModel(
                     working = true,
                     sheetVisible = false,
                     autoRunState = AutoRunState.RUNNING,
-                    autoCopiedLabel = null
+                    autoCopiedLabel = null,
+                    bubbleDisplayState = BubbleDisplayState.RUNNING,
+                    bubbleLetters = null
                 )
             }
             runCatching {
                 withContext(Dispatchers.IO) { ProjectionSessionManager.captureLatestBitmap() }
             }.onSuccess { bitmap ->
+                AppDebugLogStore.i(tag, "processFullScreen capture success width=${bitmap.width} height=${bitmap.height}")
                 processAutoBitmap(bitmap)
             }.onFailure { error ->
-                Log.e("OverlayService", "processFullScreen failed", error)
+                AppDebugLogStore.e(tag, "processFullScreen failed", error)
                 _uiState.update {
                     it.copy(
                         working = false,
@@ -121,6 +136,10 @@ internal class OverlayViewModel(
 
     fun process(bitmap: Bitmap) {
         val state = _uiState.value
+        AppDebugLogStore.i(
+            tag,
+            "process start route=${state.settings.processingRoute} bitmap=${bitmap.width}x${bitmap.height}"
+        )
         val assistant = state.settings.assistants.firstOrNull { it.id == state.settings.selectedAssistantId } ?: return
         val ocrProvider = state.settings.resolveModelProvider(ModelPurpose.OCR)
         val ocrModel = state.settings.resolveModelName(ModelPurpose.OCR)
@@ -145,6 +164,7 @@ internal class OverlayViewModel(
             runCatching {
                 when (state.settings.processingRoute) {
                     ProcessingRoute.OCR_THEN_LLM -> {
+                        AppDebugLogStore.i(tag, "process route=OCR_THEN_LLM ocrModel=$ocrModel textModel=$textModel")
                         if (ocrProvider == null || ocrModel.isBlank() || textProvider == null || textModel.isBlank()) {
                             error("请先在模型设置中配置 OCR 和文本模型")
                         }
@@ -177,6 +197,7 @@ internal class OverlayViewModel(
                     }
 
                     ProcessingRoute.MULTIMODAL_DIRECT -> {
+                        AppDebugLogStore.i(tag, "process route=MULTIMODAL_DIRECT visionModel=$visionModel")
                         if (visionProvider == null || visionModel.isBlank()) {
                             error("请先在模型设置中配置多模态模型")
                         }
@@ -201,6 +222,10 @@ internal class OverlayViewModel(
                     }
                 }
             }.onSuccess { result ->
+                AppDebugLogStore.i(
+                    tag,
+                    "process success resultId=${result.id} answerLength=${result.answer.length} extractedLength=${result.extractedText.length}"
+                )
                 store.update {
                     it.copy(
                         lastResult = result,
@@ -214,11 +239,13 @@ internal class OverlayViewModel(
                         liveOcrText = result.extractedText,
                         liveAnswerText = result.answer,
                         autoRunState = AutoRunState.IDLE,
-                        autoCopiedLabel = null
+                        autoCopiedLabel = null,
+                        bubbleDisplayState = BubbleDisplayState.IDLE,
+                        bubbleLetters = null
                     )
                 }
             }.onFailure { error ->
-                Log.e("OverlayService", "process failed", error)
+                AppDebugLogStore.e(tag, "process failed", error)
                 _uiState.update {
                     it.copy(
                         working = false,
@@ -235,9 +262,35 @@ internal class OverlayViewModel(
     }
 
     fun consumeAutoCompletedState() {
+        AppDebugLogStore.d(
+            tag,
+            "consumeAutoCompletedState state=${_uiState.value.autoRunState} bubble=${_uiState.value.bubbleDisplayState}"
+        )
         _uiState.update { state ->
             if (state.launchMode == OverlayLaunchMode.AUTO && state.autoRunState == AutoRunState.COMPLETED) {
-                state.copy(autoRunState = AutoRunState.IDLE)
+                if (state.bubbleDisplayState == BubbleDisplayState.COPIED) {
+                    state.copy(autoRunState = AutoRunState.IDLE, bubbleDisplayState = BubbleDisplayState.IDLE)
+                } else {
+                    state.copy(autoRunState = AutoRunState.IDLE)
+                }
+            } else {
+                state
+            }
+        }
+    }
+
+    fun onBubbleTappedAfterLettersShown() {
+        AppDebugLogStore.i(
+            tag,
+            "onBubbleTappedAfterLettersShown launchMode=${_uiState.value.launchMode} bubble=${_uiState.value.bubbleDisplayState} letters=${_uiState.value.bubbleLetters}"
+        )
+        _uiState.update { state ->
+            if (state.launchMode == OverlayLaunchMode.AUTO && state.bubbleDisplayState == BubbleDisplayState.SHOWING_LETTERS) {
+                AppDebugLogStore.i(tag, "onBubbleTappedAfterLettersShown clearing letters and entering pending reset")
+                state.copy(
+                    bubbleDisplayState = BubbleDisplayState.SHOWING_LETTERS_PENDING_RESET,
+                    bubbleLetters = null
+                )
             } else {
                 state
             }
@@ -308,6 +361,10 @@ internal class OverlayViewModel(
 
     private suspend fun processAutoBitmap(bitmap: Bitmap) {
         val state = _uiState.value
+        AppDebugLogStore.i(
+            tag,
+            "processAutoBitmap start route=${state.settings.processingRoute} bitmap=${bitmap.width}x${bitmap.height}"
+        )
         val assistant = state.settings.assistants.firstOrNull { it.id == state.settings.selectedAssistantId }
             ?: error("请先配置助手")
         val ocrProvider = state.settings.resolveModelProvider(ModelPurpose.OCR)
@@ -320,10 +377,11 @@ internal class OverlayViewModel(
         runCatching {
             val result = when (state.settings.processingRoute) {
                 ProcessingRoute.OCR_THEN_LLM -> {
+                    AppDebugLogStore.i(tag, "processAutoBitmap route=OCR_THEN_LLM ocrModel=$ocrModel textModel=$textModel")
                     if (ocrProvider == null || ocrModel.isBlank() || textProvider == null || textModel.isBlank()) {
                         error("请先在模型设置中配置 OCR 和文本模型")
                     }
-                    val (ocrText, rawAnswer) = gateway.streamOcrThenAutoCopy(
+                    val (ocrText, automationResult) = gateway.streamOcrThenAutomation(
                         ocrProvider = ocrProvider,
                         ocrModel = ocrModel,
                         textProvider = textProvider,
@@ -335,7 +393,7 @@ internal class OverlayViewModel(
                                 current.copy(liveOcrText = current.liveOcrText + delta)
                             }
                         },
-                        onAnswerDelta = { delta ->
+                        onThoughtDelta = { delta ->
                             _uiState.update { current ->
                                 current.copy(liveAnswerText = current.liveAnswerText + delta)
                             }
@@ -346,21 +404,24 @@ internal class OverlayViewModel(
                         route = ProcessingRoute.OCR_THEN_LLM,
                         modelSummary = buildModelSummary(textModel, textProvider?.name),
                         extractedText = ocrText,
-                        answer = rawAnswer,
+                        answer = "",
+                        automationThought = automationResult.thought,
+                        automationAction = automationResult.action,
                         screenshotBase64 = bitmap.toHistoryBase64()
                     )
                 }
 
                 ProcessingRoute.MULTIMODAL_DIRECT -> {
+                    AppDebugLogStore.i(tag, "processAutoBitmap route=MULTIMODAL_DIRECT visionModel=$visionModel")
                     if (visionProvider == null || visionModel.isBlank()) {
                         error("请先在模型设置中配置多模态模型")
                     }
-                    val rawAnswer = gateway.streamAutoCopy(
+                    val automationResult = gateway.streamAutomationDirect(
                         provider = visionProvider,
                         model = visionModel,
                         assistant = assistant,
                         bitmap = bitmap,
-                        onAnswerDelta = { delta ->
+                        onThoughtDelta = { delta ->
                             _uiState.update { current ->
                                 current.copy(liveAnswerText = current.liveAnswerText + delta)
                             }
@@ -370,60 +431,61 @@ internal class OverlayViewModel(
                         assistantName = assistant.name,
                         route = ProcessingRoute.MULTIMODAL_DIRECT,
                         modelSummary = buildModelSummary(visionModel, visionProvider.name),
-                        answer = rawAnswer,
+                        answer = "",
+                        automationThought = automationResult.thought,
+                        automationAction = automationResult.action,
                         screenshotBase64 = bitmap.toHistoryBase64()
                     )
                 }
             }
-            val copiedText = extractCopyLabel(result.answer)
+            val action = result.automationAction ?: error("自动模式未返回工具动作")
+            AppDebugLogStore.i(
+                tag,
+                "processAutoBitmap gateway success resultId=${result.id} thoughtLength=${result.automationThought.length} action=${action.type} actionText=${action.text}"
+            )
             store.update {
                 it.copy(
                     lastResult = result,
                     history = (listOf(result) + it.history).take(20)
                 )
             }
-            copiedText to result
-        }.onSuccess { (copiedText, result) ->
+            AppDebugLogStore.i(tag, "processAutoBitmap history persisted resultId=${result.id}")
+            action to result
+        }.onSuccess { (action, result) ->
+            val bubbleState = when (action.type) {
+                AutomationActionType.SET_CLIPBOARD -> BubbleDisplayState.COPIED
+                AutomationActionType.SHOW_BUBBLE_LETTERS -> BubbleDisplayState.SHOWING_LETTERS
+            }
+            AppDebugLogStore.i(
+                tag,
+                "processAutoBitmap ui success resultId=${result.id} bubbleState=$bubbleState letters=${action.text.takeIf { action.type == AutomationActionType.SHOW_BUBBLE_LETTERS }}"
+            )
             _uiState.update {
                 it.copy(
                     screenshot = bitmap,
                     selectedBitmap = bitmap,
                     working = false,
                     result = result,
-                    liveAnswerText = result.answer,
+                    liveAnswerText = result.automationThought,
                     autoRunState = AutoRunState.COMPLETED,
-                    autoCopiedLabel = copiedText,
+                    autoCopiedLabel = action.text.takeIf { action.type == AutomationActionType.SET_CLIPBOARD },
+                    bubbleDisplayState = bubbleState,
+                    bubbleLetters = action.text.takeIf { action.type == AutomationActionType.SHOW_BUBBLE_LETTERS },
                     error = null
                 )
             }
         }.onFailure { error ->
-            Log.e("OverlayService", "processAutoBitmap failed", error)
+            AppDebugLogStore.e(tag, "processAutoBitmap failed", error)
             _uiState.update {
                 it.copy(
                     working = false,
                     autoRunState = AutoRunState.IDLE,
+                    bubbleDisplayState = BubbleDisplayState.IDLE,
+                    bubbleLetters = null,
                     error = error.message ?: "处理失败"
                 )
             }
         }
-    }
-
-    private fun extractCopyLabel(answer: String): String {
-        val normalized = answer
-            .replace("\uFEFF", "")
-            .replace(Regex("[\\u200B-\\u200D\\u2060]"), "")
-        val matches = Regex("""\[(?:copy|复制):(.*?)]""", RegexOption.DOT_MATCHES_ALL)
-            .findAll(normalized)
-            .toList()
-        if (matches.isEmpty()) {
-            error("自动模式输出中未找到 [copy:标签]")
-        }
-        if (matches.size > 1) {
-            error("自动模式输出中包含多个 [copy:标签]")
-        }
-        val value = matches.single().groupValues[1].trim()
-        if (value.isBlank()) error("自动模式返回了空标签")
-        return value
     }
 
     companion object {
