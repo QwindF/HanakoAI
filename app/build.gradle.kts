@@ -24,8 +24,8 @@ android {
         applicationId = "fun.kirari.hanako"
         minSdk = 31
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -73,6 +73,15 @@ android {
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val versionName = variant.outputs.first().versionName.getOrElse("")
+            output.outputFileName.set("hanako-v${versionName}-release.apk")
         }
     }
 }
