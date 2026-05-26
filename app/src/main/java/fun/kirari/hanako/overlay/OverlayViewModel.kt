@@ -343,6 +343,67 @@ internal class OverlayViewModel(
         }
     }
 
+    fun updateModelSelectionWithFavorite(
+        purpose: ModelPurpose,
+        selection: ModelSelection,
+        favoriteModel: Boolean = false
+    ) {
+        viewModelScope.launch {
+            store.update { current ->
+                val next = when (purpose) {
+                    ModelPurpose.TEXT -> current.copy(textModelSelection = selection)
+                    ModelPurpose.VISION -> current.copy(visionModelSelection = selection)
+                    ModelPurpose.OCR -> current.copy(ocrModelSelection = selection)
+                }
+                if (!favoriteModel || selection.providerId == null || selection.model.isBlank()) {
+                    next
+                } else {
+                    next.copy(
+                        providers = next.providers.map { provider ->
+                            if (provider.id != selection.providerId) {
+                                provider
+                            } else {
+                                provider.copy(
+                                    favoriteModels = (provider.favoriteModels + selection.model)
+                                        .map(String::trim)
+                                        .filter(String::isNotBlank)
+                                        .distinctBy { it.lowercase() }
+                                )
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+
+    fun toggleFavoriteModel(providerId: String, modelId: String) {
+        val trimmedModelId = modelId.trim()
+        if (trimmedModelId.isBlank()) return
+        viewModelScope.launch {
+            store.update { current ->
+                current.copy(
+                    providers = current.providers.map { provider ->
+                        if (provider.id != providerId) {
+                            provider
+                        } else {
+                            val exists = provider.favoriteModels.any { it.equals(trimmedModelId, ignoreCase = true) }
+                            provider.copy(
+                                favoriteModels = (if (exists) {
+                                    provider.favoriteModels.filterNot { it.equals(trimmedModelId, ignoreCase = true) }
+                                } else {
+                                    provider.favoriteModels + trimmedModelId
+                                }).map(String::trim)
+                                    .filter(String::isNotBlank)
+                                    .distinctBy { it.lowercase() }
+                            )
+                        }
+                    }
+                )
+            }
+        }
+    }
+
     fun toggleProcessingRoute() {
         viewModelScope.launch {
             store.update { current ->

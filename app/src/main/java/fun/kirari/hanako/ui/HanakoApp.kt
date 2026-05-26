@@ -411,13 +411,17 @@ fun HanakoApp(viewModel: MainViewModel) {
                 modelPickerTarget = null
                 modelPickerProviderId = null
             },
-            onPick = { model ->
-                viewModel.updateModelSelection(
+            onPick = { model, isFavorite ->
+                viewModel.updateModelSelectionWithFavorite(
                     pickerTarget,
-                    ModelSelection(providerId = pickerProvider.id, model = model)
+                    ModelSelection(providerId = pickerProvider.id, model = model),
+                    favoriteModel = isFavorite
                 )
                 modelPickerTarget = null
                 modelPickerProviderId = null
+            },
+            onToggleFavorite = { model, _ ->
+                viewModel.toggleFavoriteModel(pickerProvider.id, model)
             },
             onCustomModelRequest = { dialogTitle ->
                 customModelTarget = pickerTarget
@@ -437,9 +441,10 @@ fun HanakoApp(viewModel: MainViewModel) {
             onConfirm = { model ->
                 val purpose = customModelTarget ?: ModelPurpose.TEXT
                 val providerId = modelPickerProviderId ?: return@CustomModelDialog
-                viewModel.updateModelSelection(
+                viewModel.updateModelSelectionWithFavorite(
                     purpose,
-                    ModelSelection(providerId = providerId, model = model)
+                    ModelSelection(providerId = providerId, model = model),
+                    favoriteModel = true
                 )
                 customModelDialogTitle = null
                 customModelTarget = null
@@ -455,7 +460,10 @@ fun HanakoApp(viewModel: MainViewModel) {
             provider = previewProvider,
             title = "查看可用模型",
             onDismiss = { providerModelsPreviewId = null },
-            onPick = { providerModelsPreviewId = null },
+            onPick = { _, _ -> providerModelsPreviewId = null },
+            onToggleFavorite = { model, _ ->
+                viewModel.toggleFavoriteModel(previewProvider.id, model)
+            },
             onCustomModelRequest = { }
         )
     }

@@ -79,9 +79,10 @@ import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.displayName
 import `fun`.kirari.hanako.data.resolveModelName
 import `fun`.kirari.hanako.data.resolveModelProvider
+import `fun`.kirari.hanako.ui.components.ModelPickerListContent
+import `fun`.kirari.hanako.ui.components.ModelPickerSurfaceItem
+import `fun`.kirari.hanako.ui.components.rememberModelPickerState
 import `fun`.kirari.hanako.ui.cropBitmap
-import `fun`.kirari.hanako.network.ProviderModelsApi
-import `fun`.kirari.hanako.network.RemoteModelOption
 import kotlinx.coroutines.delay
 import kotlin.math.abs
 
@@ -96,7 +97,8 @@ internal fun CropOverlaySheet(
     onSelectAssistant: (String) -> Unit,
     onSelectPreviousAssistant: () -> Unit,
     onSelectNextAssistant: () -> Unit,
-    onUpdateModelSelection: (ModelPurpose, ModelSelection) -> Unit,
+    onUpdateModelSelection: (ModelPurpose, ModelSelection, Boolean) -> Unit,
+    onToggleFavoriteModel: (String, String) -> Unit,
     onToggleProcessingRoute: () -> Unit
 ) {
     val bitmap = uiState.screenshot
@@ -335,7 +337,8 @@ internal fun CropOverlaySheet(
             onPick = { provider ->
                 onUpdateModelSelection(
                     providerPickerTarget ?: return@ProviderPickerOverlay,
-                    ModelSelection(providerId = provider.id, model = "")
+                    ModelSelection(providerId = provider.id, model = ""),
+                    false
                 )
                 onModelPickerTargetChange(providerPickerTarget)
                 providerPickerClosing = true
@@ -362,12 +365,16 @@ internal fun CropOverlaySheet(
                 onModelPickerTargetChange(null)
                 modelPickerClosing = false
             },
-            onPick = { model ->
+            onPick = { model, isFavorite ->
                 onUpdateModelSelection(
                     pickerTarget,
-                    ModelSelection(providerId = pickerProvider.id, model = model)
+                    ModelSelection(providerId = pickerProvider.id, model = model),
+                    isFavorite
                 )
                 modelPickerClosing = true
+            },
+            onToggleFavorite = { model, _ ->
+                onToggleFavoriteModel(pickerProvider.id, model)
             },
             onCustomModelRequest = { dialogTitle ->
                 customModelTarget = pickerTarget
@@ -396,7 +403,8 @@ internal fun CropOverlaySheet(
                 if (purpose != null && providerId != null) {
                     onUpdateModelSelection(
                         purpose,
-                        ModelSelection(providerId = providerId, model = model)
+                        ModelSelection(providerId = providerId, model = model),
+                        true
                     )
                     customModelDialogClosing = true
                 }
@@ -1113,13 +1121,11 @@ private fun ModelPickerOverlay(
     title: String,
     onDismiss: () -> Unit,
     onDismissFinished: () -> Unit,
-    onPick: (String) -> Unit,
-    onCustomModelRequest: (String) -> Unit,
-    api: ProviderModelsApi = ProviderModelsApi()
+    onPick: (String, Boolean) -> Unit,
+    onToggleFavorite: (String, Boolean) -> Unit,
+    onCustomModelRequest: (String) -> Unit
 ) {
-    val models by androidx.compose.runtime.produceState(initialValue = emptyList<RemoteModelOption>(), provider.id) {
-        value = runCatching { api.listModels(provider) }.getOrElse { emptyList() }
-    }
+    val pickerState = rememberModelPickerState(provider = provider)
     OverlaySelectionShell(
         title = title,
         closing = closing,
@@ -1134,45 +1140,28 @@ private fun ModelPickerOverlay(
             }
         }
     ) {
-        if (models.isEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = 320.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(models, key = { it.id }) { model ->
-                    Surface(
-                        onClick = { onPick(model.id) },
-                        shape = RoundedCornerShape(16.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(model.displayName, style = MaterialTheme.typography.titleSmall)
-                            if (model.displayName != model.id) {
-                                Text(
-                                    model.id,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
+        ModelPickerListContent(
+            models = pickerState.entries,
+            hasNetworkResponse = pickerState.hasNetworkResponse,
+            onPick = { modelId, isFavorite ->
+                if (isFavorite && !pickerState.hasNetworkResponse) {
+                    pickerState.cancelIfWaitingForNetwork()
                 }
+                onPick(modelId, isFavorite)
+            },
+            buttonStyle = { item, onClick, _ ->
+                ModelPickerSurfaceItem(
+                    model = item,
+                    onPick = onClick,
+                    onLongPress = {
+                        if (item.isFavorite) {
+                            pickerState.removeFavoriteFromCurrentSession(item.id)
+                        }
+                        onToggleFavorite(item.id, item.isFavorite)
+                    }
+                )
             }
-        }
+        )
     }
 }
 

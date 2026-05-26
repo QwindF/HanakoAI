@@ -21,6 +21,7 @@ data class ModelProviderConfig(
     val chatModel: String = "gpt-4o-mini",
     val visionModel: String = "gpt-4o",
     val ocrModel: String = "gpt-4.1-mini",
+    val favoriteModels: List<String> = emptyList(),
     val enabled: Boolean = true
 )
 

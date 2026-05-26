@@ -42,7 +42,8 @@ internal fun OverlayPanel(
                 onSelectAssistant = viewModel::selectAssistant,
                 onSelectPreviousAssistant = viewModel::selectPreviousAssistant,
                 onSelectNextAssistant = viewModel::selectNextAssistant,
-                onUpdateModelSelection = viewModel::updateModelSelection,
+                onUpdateModelSelection = viewModel::updateModelSelectionWithFavorite,
+                onToggleFavoriteModel = viewModel::toggleFavoriteModel,
                 onToggleProcessingRoute = viewModel::toggleProcessingRoute
             )
         }

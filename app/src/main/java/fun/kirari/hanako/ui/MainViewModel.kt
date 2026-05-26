@@ -162,6 +162,57 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateModelSelectionWithFavorite(
+        purpose: ModelPurpose,
+        selection: ModelSelection,
+        favoriteModel: Boolean = false
+    ) {
+        viewModelScope.launch {
+            store.update { current ->
+                val next = when (purpose) {
+                    ModelPurpose.TEXT -> current.copy(textModelSelection = selection)
+                    ModelPurpose.VISION -> current.copy(visionModelSelection = selection)
+                    ModelPurpose.OCR -> current.copy(ocrModelSelection = selection)
+                }
+                if (!favoriteModel || selection.providerId == null || selection.model.isBlank()) {
+                    next
+                } else {
+                    next.updateProviderFavoriteModels(selection.providerId) { favorites ->
+                        favorites.addIfMissing(selection.model)
+                    }
+                }
+            }
+        }
+    }
+
+    fun toggleFavoriteModel(providerId: String, modelId: String) {
+        val trimmedModelId = modelId.trim()
+        if (trimmedModelId.isBlank()) return
+        viewModelScope.launch {
+            store.update { current ->
+                current.updateProviderFavoriteModels(providerId) { favorites ->
+                    if (favorites.any { it.equals(trimmedModelId, ignoreCase = true) }) {
+                        favorites.removeByName(trimmedModelId)
+                    } else {
+                        favorites + trimmedModelId
+                    }
+                }
+            }
+        }
+    }
+
+    fun removeFavoriteModel(providerId: String, modelId: String) {
+        val trimmedModelId = modelId.trim()
+        if (trimmedModelId.isBlank()) return
+        viewModelScope.launch {
+            store.update { current ->
+                current.updateProviderFavoriteModels(providerId) { favorites ->
+                    favorites.removeByName(trimmedModelId)
+                }
+            }
+        }
+    }
+
     fun updateAutomationSettings(transform: (AutomationSettings) -> AutomationSettings) {
         viewModelScope.launch {
             store.update { current ->
@@ -214,4 +265,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             else -> selection.copy(providerId = null, model = "")
         }
     }
+}
+
+private fun AppSettings.updateProviderFavoriteModels(
+    providerId: String,
+    transform: (List<String>) -> List<String>
+): AppSettings {
+    return copy(
+        providers = providers.map { provider ->
+            if (provider.id != providerId) {
+                provider
+            } else {
+                provider.copy(
+                    favoriteModels = transform(provider.favoriteModels)
+                        .map(String::trim)
+                        .filter(String::isNotBlank)
+                        .distinctBy { it.lowercase() }
+                )
+            }
+        }
+    )
+}
+
+private fun List<String>.addIfMissing(modelId: String): List<String> {
+    return if (any { it.equals(modelId, ignoreCase = true) }) this else this + modelId
+}
+
+private fun List<String>.removeByName(modelId: String): List<String> {
+    return filterNot { it.equals(modelId, ignoreCase = true) }
 }
