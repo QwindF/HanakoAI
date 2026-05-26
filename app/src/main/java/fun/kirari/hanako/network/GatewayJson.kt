@@ -17,15 +17,7 @@ import java.io.ByteArrayOutputStream
 
 internal fun openAiMessage(role: String, text: String): JsonObject = buildJsonObject {
     put("role", role)
-    put(
-        "content",
-        buildJsonArray {
-            add(buildJsonObject {
-                put("type", "text")
-                put("text", text)
-            })
-        }
-    )
+    put("content", text)
 }
 
 internal fun extractOpenAiChatDelta(root: JsonObject): String {

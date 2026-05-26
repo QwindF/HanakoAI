@@ -223,6 +223,7 @@ fun HanakoApp(viewModel: MainViewModel) {
                 startDestination = ROUTE_HOME_SHELL,
                 modifier = Modifier
                     .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surface)
                     .padding(padding),
                 enterTransition = {
                     slideInHorizontally { it } + fadeIn()
@@ -496,9 +497,15 @@ private fun MainShellScreen(
         state = pagerState,
         modifier = Modifier.fillMaxSize()
     ) { page ->
-        when (Screen.entries[page]) {
-            Screen.Hanako -> hanakoContent()
-            Screen.Settings -> settingsContent()
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surface)
+        ) {
+            when (Screen.entries[page]) {
+                Screen.Hanako -> hanakoContent()
+                Screen.Settings -> settingsContent()
+            }
         }
     }
 }

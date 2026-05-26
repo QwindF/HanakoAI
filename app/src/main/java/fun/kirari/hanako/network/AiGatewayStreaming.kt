@@ -13,12 +13,19 @@ import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 private const val STREAM_TAG = "HanakoAiStream"
+
+private data class PendingToolCall(
+    var name: String? = null,
+    val arguments: StringBuilder = StringBuilder()
+)
 
 internal suspend fun AiGateway.streamText(
     provider: ModelProviderConfig,
@@ -198,24 +205,26 @@ internal suspend fun AiGateway.streamOpenAiChat(
                 add(
                     buildJsonObject {
                         put("role", "user")
-                        put(
-                            "content",
-                            buildJsonArray {
-                                add(buildJsonObject {
-                                    put("type", "text")
-                                    put("text", userPrompt)
-                                })
-                                imageBase64?.let {
+                        if (imageBase64 == null) {
+                            put("content", userPrompt)
+                        } else {
+                            put(
+                                "content",
+                                buildJsonArray {
+                                    add(buildJsonObject {
+                                        put("type", "text")
+                                        put("text", userPrompt)
+                                    })
                                     add(buildJsonObject {
                                         put("type", "image_url")
                                         put("image_url", buildJsonObject {
-                                            put("url", "data:image/jpeg;base64,$it")
+                                            put("url", "data:image/jpeg;base64,$imageBase64")
                                             put("detail", "high")
                                         })
                                     })
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 )
             }
@@ -309,7 +318,6 @@ internal suspend fun AiGateway.streamOpenAiChatAutomation(
     val payload = buildJsonObject {
         put("model", model)
         put("stream", true)
-        put("tool_choice", "required")
         put("tools", automationToolsForChatCompletions())
         put(
             "messages",
@@ -318,30 +326,32 @@ internal suspend fun AiGateway.streamOpenAiChatAutomation(
                 add(
                     buildJsonObject {
                         put("role", "user")
-                        put(
-                            "content",
-                            buildJsonArray {
-                                add(buildJsonObject {
-                                    put("type", "text")
-                                    put("text", userPrompt)
-                                })
-                                imageBase64?.let {
+                        if (imageBase64 == null) {
+                            put("content", userPrompt)
+                        } else {
+                            put(
+                                "content",
+                                buildJsonArray {
+                                    add(buildJsonObject {
+                                        put("type", "text")
+                                        put("text", userPrompt)
+                                    })
                                     add(buildJsonObject {
                                         put("type", "image_url")
                                         put("image_url", buildJsonObject {
-                                            put("url", "data:image/jpeg;base64,$it")
+                                            put("url", "data:image/jpeg;base64,$imageBase64")
                                             put("detail", "high")
                                         })
                                     })
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 )
             }
         )
     }
-    AppDebugLogStore.d(STREAM_TAG, "streamOpenAiChatAutomation payload tools=chat_completions toolChoice=required hasImage=${imageBase64 != null}")
+    AppDebugLogStore.d(STREAM_TAG, "streamOpenAiChatAutomation payload tools=chat_completions hasImage=${imageBase64 != null}")
 
     val thought = StringBuilder()
     var toolName: String? = null
@@ -436,8 +446,7 @@ internal suspend fun AiGateway.streamResponsesAutomation(
     }
 
     val thought = StringBuilder()
-    var toolName: String? = null
-    val toolArguments = StringBuilder()
+    val toolCalls = linkedMapOf<String, PendingToolCall>()
     var loggedThoughtDelta = false
     sseClient.stream(
         request = baseRequest(provider, "${provider.baseUrl.trimEnd('/')}/responses", payload),
@@ -457,17 +466,48 @@ internal suspend fun AiGateway.streamResponsesAutomation(
                 }
 
                 "response.function_call_arguments.delta" -> {
-                    toolArguments.append(root["delta"]?.jsonPrimitive?.contentOrNull.orEmpty())
-                    AppDebugLogStore.d(STREAM_TAG, "streamResponsesAutomation tool args length=${toolArguments.length}")
+                    val itemId = root["item_id"]?.jsonPrimitive?.contentOrNull ?: return@stream null
+                    val toolCall = toolCalls.getOrPut(itemId) { PendingToolCall() }
+                    toolCall.arguments.append(root["delta"]?.jsonPrimitive?.contentOrNull.orEmpty())
+                    AppDebugLogStore.d(
+                        STREAM_TAG,
+                        "streamResponsesAutomation tool args delta itemId=$itemId length=${toolCall.arguments.length}"
+                    )
                     null
                 }
 
                 "response.output_item.added" -> {
                     val item = root["item"]?.jsonObject ?: return@stream null
                     if (item["type"]?.jsonPrimitive?.contentOrNull == "function_call") {
-                        toolName = item["name"]?.jsonPrimitive?.contentOrNull
-                        AppDebugLogStore.i(STREAM_TAG, "streamResponsesAutomation tool declared name=$toolName")
+                        val itemId = item["id"]?.jsonPrimitive?.contentOrNull ?: return@stream null
+                        val toolCall = toolCalls.getOrPut(itemId) { PendingToolCall() }
+                        toolCall.name = item["name"]?.jsonPrimitive?.contentOrNull
+                        item["arguments"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotEmpty() }?.let {
+                            toolCall.arguments.clear()
+                            toolCall.arguments.append(it)
+                        }
+                        AppDebugLogStore.i(
+                            STREAM_TAG,
+                            "streamResponsesAutomation tool added itemId=$itemId name=${toolCall.name}"
+                        )
                     }
+                    null
+                }
+
+                "response.function_call_arguments.done" -> {
+                    val itemId = root["item_id"]?.jsonPrimitive?.contentOrNull ?: return@stream null
+                    val toolCall = toolCalls.getOrPut(itemId) { PendingToolCall() }
+                    root["name"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let {
+                        toolCall.name = it
+                    }
+                    root["arguments"]?.jsonPrimitive?.contentOrNull?.let {
+                        toolCall.arguments.clear()
+                        toolCall.arguments.append(it)
+                    }
+                    AppDebugLogStore.i(
+                        STREAM_TAG,
+                        "streamResponsesAutomation tool args done itemId=$itemId name=${toolCall.name} length=${toolCall.arguments.length}"
+                    )
                     null
                 }
 
@@ -476,9 +516,12 @@ internal suspend fun AiGateway.streamResponsesAutomation(
         },
         onDelta = onThoughtDelta
     )
-    val actionName = toolName ?: error("自动模式未调用工具")
-    val args = runCatching { json.parseToJsonElement(toolArguments.toString()).jsonObject }.getOrElse {
-        AppDebugLogStore.e(STREAM_TAG, "streamResponsesAutomation tool args parse failed raw=$toolArguments", it)
+    val resolvedToolCall = toolCalls.values.firstOrNull { !it.name.isNullOrBlank() }
+        ?: error("自动模式未调用工具")
+    val actionName = resolvedToolCall.name ?: error("自动模式未调用工具")
+    val rawArguments = resolvedToolCall.arguments.toString()
+    val args = runCatching { json.parseToJsonElement(rawArguments).jsonObject }.getOrElse {
+        AppDebugLogStore.e(STREAM_TAG, "streamResponsesAutomation tool args parse failed raw=$rawArguments", it)
         error("自动模式工具参数解析失败")
     }
     AppDebugLogStore.i(STREAM_TAG, "streamResponsesAutomation completed tool=$actionName thoughtLength=${thought.length}")
@@ -606,8 +649,7 @@ internal suspend fun AiGateway.streamAnthropicAutomation(
     }
 
     val thought = StringBuilder()
-    var toolName: String? = null
-    val toolInput = StringBuilder()
+    val toolCallsByIndex = linkedMapOf<Int, PendingToolCall>()
     var loggedThoughtDelta = false
     sseClient.stream(
         request = baseRequest(
@@ -622,15 +664,25 @@ internal suspend fun AiGateway.streamAnthropicAutomation(
             val root = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return@stream null
             when (type) {
                 "content_block_start" -> {
+                    val index = root["index"]?.jsonPrimitive?.intOrNull ?: return@stream null
                     val block = root["content_block"]?.jsonObject ?: return@stream null
                     if (block["type"]?.jsonPrimitive?.contentOrNull == "tool_use") {
-                        toolName = block["name"]?.jsonPrimitive?.contentOrNull
-                        AppDebugLogStore.i(STREAM_TAG, "streamAnthropicAutomation tool declared name=$toolName")
+                        val toolCall = toolCallsByIndex.getOrPut(index) { PendingToolCall() }
+                        toolCall.name = block["name"]?.jsonPrimitive?.contentOrNull
+                        block["input"]?.jsonObject?.takeIf { it.isNotEmpty() }?.let {
+                            toolCall.arguments.clear()
+                            toolCall.arguments.append(json.encodeToString(JsonObject.serializer(), it))
+                        }
+                        AppDebugLogStore.i(
+                            STREAM_TAG,
+                            "streamAnthropicAutomation tool start index=$index name=${toolCall.name}"
+                        )
                     }
                     null
                 }
 
                 "content_block_delta" -> {
+                    val index = root["index"]?.jsonPrimitive?.intOrNull ?: return@stream null
                     val delta = root["delta"]?.jsonObject ?: return@stream null
                     when (delta["type"]?.jsonPrimitive?.contentOrNull) {
                         "text_delta" -> {
@@ -644,8 +696,12 @@ internal suspend fun AiGateway.streamAnthropicAutomation(
                         }
 
                         "input_json_delta" -> {
-                            toolInput.append(delta["partial_json"]?.jsonPrimitive?.contentOrNull.orEmpty())
-                            AppDebugLogStore.d(STREAM_TAG, "streamAnthropicAutomation tool args length=${toolInput.length}")
+                            val toolCall = toolCallsByIndex.getOrPut(index) { PendingToolCall() }
+                            toolCall.arguments.append(delta["partial_json"]?.jsonPrimitive?.contentOrNull.orEmpty())
+                            AppDebugLogStore.d(
+                                STREAM_TAG,
+                                "streamAnthropicAutomation tool args delta index=$index length=${toolCall.arguments.length}"
+                            )
                             null
                         }
 
@@ -658,9 +714,12 @@ internal suspend fun AiGateway.streamAnthropicAutomation(
         },
         onDelta = onThoughtDelta
     )
-    val actionName = toolName ?: error("自动模式未调用工具")
-    val args = runCatching { json.parseToJsonElement(toolInput.toString()).jsonObject }.getOrElse {
-        AppDebugLogStore.e(STREAM_TAG, "streamAnthropicAutomation tool args parse failed raw=$toolInput", it)
+    val resolvedToolCall = toolCallsByIndex.values.firstOrNull { !it.name.isNullOrBlank() }
+        ?: error("自动模式未调用工具")
+    val actionName = resolvedToolCall.name ?: error("自动模式未调用工具")
+    val rawArguments = resolvedToolCall.arguments.toString()
+    val args = runCatching { json.parseToJsonElement(rawArguments).jsonObject }.getOrElse {
+        AppDebugLogStore.e(STREAM_TAG, "streamAnthropicAutomation tool args parse failed raw=$rawArguments", it)
         error("自动模式工具参数解析失败")
     }
     AppDebugLogStore.i(STREAM_TAG, "streamAnthropicAutomation completed tool=$actionName thoughtLength=${thought.length}")
