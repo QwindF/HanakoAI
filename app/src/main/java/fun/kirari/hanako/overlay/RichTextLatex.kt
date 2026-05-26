@@ -21,7 +21,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import `fun`.kirari.hanako.debug.AppDebugLogStore
 import ru.noties.jlatexmath.JLatexMathDrawable
+
+private const val latexLogTag = "RichTextLatex"
 
 @Composable
 internal fun LatexInline(
@@ -113,7 +116,10 @@ internal fun assumeLatexSize(latex: String, fontSize: Float): Rect {
             .padding(0)
             .build()
             .bounds
-    }.getOrElse { Rect(0, 0, 0, 0) }
+    }.getOrElse {
+        AppDebugLogStore.e(latexLogTag, "assumeLatexSize failed latex=${latex.take(200)}", it)
+        Rect(0, 0, 0, 0)
+    }
 }
 
 private val inlineDollarRegex = Regex("""^\$(.*?)\$""", RegexOption.DOT_MATCHES_ALL)

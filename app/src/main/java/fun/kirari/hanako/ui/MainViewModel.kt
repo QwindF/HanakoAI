@@ -216,7 +216,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun updateAutomationSettings(transform: (AutomationSettings) -> AutomationSettings) {
         viewModelScope.launch {
             store.update { current ->
-                current.copy(automation = transform(current.automation))
+                val next = transform(current.automation)
+                current.copy(
+                    automation = next.copy(autoModeTimeoutSeconds = next.autoModeTimeoutSeconds.coerceAtLeast(1))
+                )
             }
         }
     }

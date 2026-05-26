@@ -10,6 +10,7 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
+import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -26,12 +27,14 @@ internal class SseStreamClient(
 
     suspend fun stream(
         request: Request,
+        firstDeltaTimeoutMillis: Long = 10_000L,
         onEvent: (eventSource: EventSource, type: String?, id: String?, data: String) -> StreamEventResult?,
         onDelta: (String) -> Unit
     ): String = withContext(Dispatchers.IO) {
         suspendCancellableCoroutine { cont ->
             val builder = StringBuilder()
             val finished = AtomicBoolean(false)
+            val firstDeltaReceived = AtomicBoolean(false)
             var eventCount = 0
 
             fun finish(block: () -> Unit) {
@@ -59,6 +62,7 @@ internal class SseStreamClient(
                         val result = onEvent(eventSource, type, id, data)
                         val delta = result?.delta
                         if (!delta.isNullOrEmpty()) {
+                            firstDeltaReceived.set(true)
                             builder.append(delta)
                             onDelta(delta)
                         }
@@ -75,9 +79,17 @@ internal class SseStreamClient(
 
                 override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                     AppDebugLogStore.e(tag, "stream failure code=${response?.code} url=${request.url}", t)
+                    val normalized = if (
+                        !firstDeltaReceived.get() &&
+                        (t is SocketTimeoutException || t?.message?.contains("timeout", ignoreCase = true) == true)
+                    ) {
+                        SocketTimeoutException("自动模式首字延迟超时（${firstDeltaTimeoutMillis / 1000} 秒）")
+                    } else {
+                        t
+                    }
                     finish {
                         cont.resumeWithException(
-                            t ?: IllegalStateException(
+                            normalized ?: IllegalStateException(
                                 "Stream failed: ${response?.code ?: "unknown"}"
                             )
                         )

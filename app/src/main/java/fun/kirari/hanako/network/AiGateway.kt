@@ -9,9 +9,14 @@ import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 class AiGateway(
-    private val client: OkHttpClient = OkHttpClient(),
+    private val client: OkHttpClient = OkHttpClient.Builder()
+        // SSE streaming should not be cut off by a fixed socket read timeout.
+        // First-token timing is enforced separately by SseStreamClient.
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .build(),
     internal val json: Json = Json { ignoreUnknownKeys = true }
 ) {
     private val tag = "HanakoAiGateway"
@@ -38,6 +43,7 @@ class AiGateway(
         textModel: String,
         assistant: AssistantPreset,
         bitmap: Bitmap,
+        firstDeltaTimeoutMillis: Long,
         onOcrDelta: (String) -> Unit,
         onAnswerDelta: (String) -> Unit
     ): Pair<String, String> {
@@ -48,6 +54,7 @@ class AiGateway(
             systemPrompt = assistant.ocrPrompt,
             userPrompt = "请执行 OCR。",
             imageBase64 = bitmap.toBase64Jpeg(),
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onOcrDelta
         )
         val answer = streamText(
@@ -55,6 +62,7 @@ class AiGateway(
             model = textModel,
             systemPrompt = assistantPromptWithCopyMarker(assistant.textPrompt),
             userPrompt = "以下是 OCR 结果，请完成任务：\n$ocrText",
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onAnswerDelta
         )
         AppDebugLogStore.i(tag, "streamOcrThenChat success ocrLength=${ocrText.length} answerLength=${answer.length}")
@@ -68,6 +76,7 @@ class AiGateway(
         textModel: String,
         assistant: AssistantPreset,
         bitmap: Bitmap,
+        firstDeltaTimeoutMillis: Long,
         onOcrDelta: (String) -> Unit,
         onThoughtDelta: (String) -> Unit
     ): Pair<String, AutomationResult> {
@@ -78,6 +87,7 @@ class AiGateway(
             systemPrompt = assistant.ocrPrompt,
             userPrompt = "请执行 OCR。",
             imageBase64 = bitmap.toBase64Jpeg(),
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onOcrDelta
         )
         val answer = streamAutomation(
@@ -86,6 +96,7 @@ class AiGateway(
             systemPrompt = automationSystemPrompt(assistant.textPrompt),
             userPrompt = "以下是 OCR 结果，请先输出思考过程，再通过一次工具调用给出自动模式动作：\n$ocrText",
             imageBase64 = null,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onThoughtDelta = onThoughtDelta
         )
         AppDebugLogStore.i(
@@ -100,6 +111,7 @@ class AiGateway(
         model: String,
         assistant: AssistantPreset,
         bitmap: Bitmap,
+        firstDeltaTimeoutMillis: Long,
         onAnswerDelta: (String) -> Unit
     ): String {
         AppDebugLogStore.i(tag, "streamVisionDirect start visionModel=$model bitmap=${bitmap.width}x${bitmap.height}")
@@ -109,6 +121,7 @@ class AiGateway(
             systemPrompt = assistantPromptWithCopyMarker(assistant.visionPrompt),
             userPrompt = "请直接基于图片内容完成任务。",
             imageBase64 = bitmap.toBase64Jpeg(),
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onAnswerDelta
         )
         AppDebugLogStore.i(tag, "streamVisionDirect success answerLength=${answer.length}")
@@ -120,6 +133,7 @@ class AiGateway(
         model: String,
         assistant: AssistantPreset,
         bitmap: Bitmap,
+        firstDeltaTimeoutMillis: Long,
         onThoughtDelta: (String) -> Unit
     ): AutomationResult {
         AppDebugLogStore.i(tag, "streamAutomationDirect start visionModel=$model bitmap=${bitmap.width}x${bitmap.height}")
@@ -129,6 +143,7 @@ class AiGateway(
             systemPrompt = automationSystemPrompt(assistant.visionPrompt),
             userPrompt = "请根据整张屏幕截图先输出思考过程，再通过一次工具调用给出自动模式动作。",
             imageBase64 = bitmap.toBase64Jpeg(),
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onThoughtDelta = onThoughtDelta
         )
         AppDebugLogStore.i(

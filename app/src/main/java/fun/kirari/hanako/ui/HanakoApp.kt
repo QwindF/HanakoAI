@@ -100,8 +100,7 @@ private const val ROUTE_SETTINGS_PROVIDER_DETAIL = "settings_provider_detail"
 private const val ROUTE_SETTINGS_MODEL = "settings_model"
 private const val ROUTE_SETTINGS_ASSISTANT = "settings_assistant"
 private const val ROUTE_SETTINGS_ASSISTANT_DETAIL = "settings_assistant_detail"
-private const val ROUTE_SETTINGS_AUTOMATION = "settings_automation"
-private const val ROUTE_SETTINGS_CAPTURE_METHOD = "settings_capture_method"
+private const val ROUTE_SETTINGS_MORE = "settings_more"
 private const val ROUTE_SETTINGS_DEBUG_LOGS = "settings_debug_logs"
 private const val ARG_PROVIDER_ID = "providerId"
 private const val ARG_ASSISTANT_ID = "assistantId"
@@ -118,8 +117,7 @@ private fun appTitle(route: String?, currentScreen: Screen): String = when (rout
     ROUTE_SETTINGS_PROVIDER -> "模型提供方"
     ROUTE_SETTINGS_MODEL -> "模型设置"
     ROUTE_SETTINGS_ASSISTANT -> "助手配置"
-    ROUTE_SETTINGS_AUTOMATION -> "自动模式"
-    ROUTE_SETTINGS_CAPTURE_METHOD -> "屏幕录制方式"
+    ROUTE_SETTINGS_MORE -> "更多"
     ROUTE_SETTINGS_DEBUG_LOGS -> "调试日志"
     null -> currentScreen.title
     else -> when {
@@ -287,8 +285,7 @@ fun HanakoApp(viewModel: MainViewModel) {
                                 onNavigateProvider = { navController.navigate(ROUTE_SETTINGS_PROVIDER) },
                                 onNavigateModel = { navController.navigate(ROUTE_SETTINGS_MODEL) },
                                 onNavigateAssistant = { navController.navigate(ROUTE_SETTINGS_ASSISTANT) },
-                                onNavigateAutomation = { navController.navigate(ROUTE_SETTINGS_AUTOMATION) },
-                                onNavigateCaptureMethod = { navController.navigate(ROUTE_SETTINGS_CAPTURE_METHOD) },
+                                onNavigateMore = { navController.navigate(ROUTE_SETTINGS_MORE) },
                                 onNavigateDebugLogs = { navController.navigate(ROUTE_SETTINGS_DEBUG_LOGS) }
                             )
                         }
@@ -362,20 +359,21 @@ fun HanakoApp(viewModel: MainViewModel) {
                         LaunchedEffect(Unit) { navController.popBackStack() }
                     }
                 }
-                composable(ROUTE_SETTINGS_AUTOMATION) {
-                    AutomationSettingsScreen(
-                        settings = settings.automation,
+                composable(ROUTE_SETTINGS_MORE) {
+                    MoreSettingsScreen(
+                        automationSettings = settings.automation,
+                        selectedMethod = settings.screenCaptureMethod,
                         onToggleCompletionNotification = { enabled ->
                             viewModel.updateAutomationSettings {
                                 it.copy(completionNotificationEnabled = enabled)
                             }
+                        },
+                        onSelectMethod = viewModel::setScreenCaptureMethod,
+                        onUpdateTimeoutSeconds = { seconds ->
+                            viewModel.updateAutomationSettings {
+                                it.copy(autoModeTimeoutSeconds = seconds)
+                            }
                         }
-                    )
-                }
-                composable(ROUTE_SETTINGS_CAPTURE_METHOD) {
-                    ScreenCaptureMethodSettingsScreen(
-                        selectedMethod = settings.screenCaptureMethod,
-                        onSelectMethod = viewModel::setScreenCaptureMethod
                     )
                 }
                 composable(ROUTE_SETTINGS_DEBUG_LOGS) {

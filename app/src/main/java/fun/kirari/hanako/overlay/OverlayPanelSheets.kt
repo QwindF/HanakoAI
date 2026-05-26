@@ -478,11 +478,32 @@ internal fun ResultOverlaySheet(
                         }
                     }
                     if (uiState.settings.processingRoute == ProcessingRoute.OCR_THEN_LLM) {
-                        ResultCard(title = "OCR 结果") {
+                        ResultCard(
+                            title = "OCR 结果",
+                            actions = {
+                                if (!uiState.working && uiState.liveOcrText.isNotBlank()) {
+                                    SmallHeaderAction(
+                                        label = "复制原文",
+                                        onClick = {
+                                            copyToClipboard(context, "Hanako OCR 原文", uiState.liveOcrText)
+                                            Toast.makeText(context, "已复制 OCR 原文", Toast.LENGTH_SHORT).show()
+                                        }
+                                    )
+                                }
+                            }
+                        ) {
                             if (uiState.liveOcrText.isBlank() && uiState.working) {
                                 LoadingLine("正在识别文字…")
                             } else {
-                                Text(uiState.liveOcrText.ifBlank { "暂无内容" })
+                                val ocrText = uiState.liveOcrText
+                                if (ocrText.isNotBlank()) {
+                                    MarkdownLatexText(
+                                        content = ocrText,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                } else {
+                                    Text("暂无内容")
+                                }
                             }
                         }
                     }

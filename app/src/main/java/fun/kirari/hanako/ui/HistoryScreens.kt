@@ -56,6 +56,7 @@ import `fun`.kirari.hanako.data.AppSettings
 import `fun`.kirari.hanako.data.AutomationActionType
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
+import `fun`.kirari.hanako.data.ProcessingStatus
 import `fun`.kirari.hanako.data.decodeHistoryBitmap
 import `fun`.kirari.hanako.overlay.MarkdownLatexText
 import `fun`.kirari.hanako.ui.components.SectionCard
@@ -193,6 +194,11 @@ private fun HistoryListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
+                    "状态：${result.status.displayName()}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = historyStatusColor(result.status)
+                )
+                Text(
                     text = historyPreviewText(result),
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 2,
@@ -287,11 +293,61 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
         }
         if (result.route == ProcessingRoute.OCR_THEN_LLM) {
             item {
-                HistoryResultCard(title = "OCR 结果") {
-                    Text(
-                        result.extractedText.ifBlank { "暂无内容" },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                HistoryResultCard(
+                    title = "OCR 结果",
+                    action = {
+                        TextButton(
+                            onClick = {
+                                copyToClipboard(context, "Hanako OCR 原文", result.extractedText)
+                                Toast.makeText(context, "已复制 OCR 原文", Toast.LENGTH_SHORT).show()
+                            },
+                            enabled = result.extractedText.isNotBlank()
+                        ) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.size(4.dp))
+                            Text("复制原文")
+                        }
+                    }
+                ) {
+                    if (result.extractedText.isNotBlank()) {
+                        MarkdownLatexText(
+                            content = result.extractedText,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Text("暂无内容")
+                    }
+                }
+            }
+        }
+        if (result.detail.isNotBlank()) {
+            item {
+                HistoryResultCard(title = "请求详情") {
+                    Text(result.detail)
+                }
+            }
+        }
+        if (result.events.isNotEmpty()) {
+            item {
+                HistoryResultCard(title = "处理步骤") {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        result.events.forEach { event ->
+                            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(event.title, fontWeight = FontWeight.SemiBold)
+                                if (event.detail.isNotBlank()) {
+                                    Text(
+                                        event.detail,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -399,10 +455,28 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
 
 private fun historyPreviewText(result: ProcessingResult): String {
     return when {
+        result.detail.isNotBlank() && result.status != ProcessingStatus.SUCCESS -> result.detail
         result.automationAction != null -> "${automationActionLabel(result)}：${result.automationAction.text}"
         result.answer.isNotBlank() -> result.answer
         else -> "暂无回答"
     }
+}
+
+@Composable
+private fun historyStatusColor(status: ProcessingStatus): Color {
+    return when (status) {
+        ProcessingStatus.RUNNING -> MaterialTheme.colorScheme.primary
+        ProcessingStatus.SUCCESS -> MaterialTheme.colorScheme.tertiary
+        ProcessingStatus.ERROR -> MaterialTheme.colorScheme.error
+        ProcessingStatus.TIMEOUT -> MaterialTheme.colorScheme.error
+    }
+}
+
+private fun ProcessingStatus.displayName(): String = when (this) {
+    ProcessingStatus.RUNNING -> "进行中"
+    ProcessingStatus.SUCCESS -> "成功"
+    ProcessingStatus.ERROR -> "失败"
+    ProcessingStatus.TIMEOUT -> "超时"
 }
 
 private fun automationActionLabel(result: ProcessingResult): String {
