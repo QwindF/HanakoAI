@@ -25,6 +25,7 @@ internal suspend fun AiGateway.streamText(
     model: String,
     systemPrompt: String,
     userPrompt: String,
+    firstDeltaTimeoutMillis: Long,
     onDelta: (String) -> Unit
 ): String {
     AppDebugLogStore.i(STREAM_TAG, "streamText provider=${provider.kind} model=$model")
@@ -35,6 +36,7 @@ internal suspend fun AiGateway.streamText(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = null,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
 
@@ -44,6 +46,7 @@ internal suspend fun AiGateway.streamText(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = null,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
 
@@ -53,6 +56,7 @@ internal suspend fun AiGateway.streamText(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = null,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
 
@@ -62,6 +66,7 @@ internal suspend fun AiGateway.streamText(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = null,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
     }
@@ -73,6 +78,7 @@ internal suspend fun AiGateway.streamVision(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String,
+    firstDeltaTimeoutMillis: Long,
     onDelta: (String) -> Unit
 ): String {
     AppDebugLogStore.i(STREAM_TAG, "streamVision provider=${provider.kind} model=$model hasImage=true")
@@ -83,6 +89,7 @@ internal suspend fun AiGateway.streamVision(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
 
@@ -92,6 +99,7 @@ internal suspend fun AiGateway.streamVision(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
 
@@ -101,6 +109,7 @@ internal suspend fun AiGateway.streamVision(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
 
@@ -110,6 +119,7 @@ internal suspend fun AiGateway.streamVision(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onDelta = onDelta
         )
     }
@@ -121,6 +131,7 @@ internal suspend fun AiGateway.streamAutomation(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onThoughtDelta: (String) -> Unit
 ): AutomationResult {
     AppDebugLogStore.i(STREAM_TAG, "streamAutomation provider=${provider.kind} model=$model hasImage=${imageBase64 != null}")
@@ -131,6 +142,7 @@ internal suspend fun AiGateway.streamAutomation(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onThoughtDelta = onThoughtDelta
         )
 
@@ -140,6 +152,7 @@ internal suspend fun AiGateway.streamAutomation(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onThoughtDelta = onThoughtDelta
         )
 
@@ -149,6 +162,7 @@ internal suspend fun AiGateway.streamAutomation(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onThoughtDelta = onThoughtDelta
         )
 
@@ -158,6 +172,7 @@ internal suspend fun AiGateway.streamAutomation(
             systemPrompt = systemPrompt,
             userPrompt = userPrompt,
             imageBase64 = imageBase64,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             onThoughtDelta = onThoughtDelta
         )
     }
@@ -169,6 +184,7 @@ internal suspend fun AiGateway.streamOpenAiChat(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onDelta: (String) -> Unit
 ): String {
     AppDebugLogStore.i(STREAM_TAG, "streamOpenAiChat request model=$model")
@@ -208,6 +224,7 @@ internal suspend fun AiGateway.streamOpenAiChat(
 
     return sseClient.stream(
         request = baseRequest(provider, "${provider.baseUrl.trimEnd('/')}/chat/completions", payload),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, _, _, data ->
             if (data == "[DONE]") {
                 SseStreamClient.StreamEventResult(done = true)
@@ -226,6 +243,7 @@ internal suspend fun AiGateway.streamResponses(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onDelta: (String) -> Unit
 ): String {
     AppDebugLogStore.i(STREAM_TAG, "streamResponses request model=$model")
@@ -262,6 +280,7 @@ internal suspend fun AiGateway.streamResponses(
 
     return sseClient.stream(
         request = baseRequest(provider, "${provider.baseUrl.trimEnd('/')}/responses", payload),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, type, _, data ->
             if (data == "[DONE]") {
                 SseStreamClient.StreamEventResult(done = true)
@@ -283,6 +302,7 @@ internal suspend fun AiGateway.streamOpenAiChatAutomation(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onThoughtDelta: (String) -> Unit
 ): AutomationResult {
     AppDebugLogStore.i(STREAM_TAG, "streamOpenAiChatAutomation request model=$model")
@@ -329,6 +349,7 @@ internal suspend fun AiGateway.streamOpenAiChatAutomation(
     var loggedThoughtDelta = false
     sseClient.stream(
         request = baseRequest(provider, "${provider.baseUrl.trimEnd('/')}/chat/completions", payload),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, _, _, data ->
             if (data == "[DONE]") return@stream SseStreamClient.StreamEventResult(done = true)
             val root = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return@stream null
@@ -377,6 +398,7 @@ internal suspend fun AiGateway.streamResponsesAutomation(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onThoughtDelta: (String) -> Unit
 ): AutomationResult {
     AppDebugLogStore.i(STREAM_TAG, "streamResponsesAutomation request model=$model")
@@ -419,6 +441,7 @@ internal suspend fun AiGateway.streamResponsesAutomation(
     var loggedThoughtDelta = false
     sseClient.stream(
         request = baseRequest(provider, "${provider.baseUrl.trimEnd('/')}/responses", payload),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, type, _, data ->
             if (data == "[DONE]") return@stream SseStreamClient.StreamEventResult(done = true)
             val root = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return@stream null
@@ -471,6 +494,7 @@ internal suspend fun AiGateway.streamAnthropic(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onDelta: (String) -> Unit
 ): String {
     AppDebugLogStore.i(STREAM_TAG, "streamAnthropic request model=$model")
@@ -517,6 +541,7 @@ internal suspend fun AiGateway.streamAnthropic(
             payload,
             headers = mapOf("anthropic-version" to "2023-06-01")
         ),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, type, _, data ->
             if (data == "[DONE]") {
                 SseStreamClient.StreamEventResult(done = true)
@@ -538,6 +563,7 @@ internal suspend fun AiGateway.streamAnthropicAutomation(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onThoughtDelta: (String) -> Unit
 ): AutomationResult {
     AppDebugLogStore.i(STREAM_TAG, "streamAnthropicAutomation request model=$model")
@@ -590,6 +616,7 @@ internal suspend fun AiGateway.streamAnthropicAutomation(
             payload,
             headers = mapOf("anthropic-version" to "2023-06-01")
         ),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, type, _, data ->
             if (data == "[DONE]") return@stream SseStreamClient.StreamEventResult(done = true)
             val root = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return@stream null
@@ -649,6 +676,7 @@ internal suspend fun AiGateway.streamGoogle(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onDelta: (String) -> Unit
 ): String {
     AppDebugLogStore.i(STREAM_TAG, "streamGoogle request model=$model")
@@ -702,6 +730,7 @@ internal suspend fun AiGateway.streamGoogle(
             payload,
             googleApiKeyHeader = true
         ),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, _, _, data ->
             val root = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: null
             val candidates = root?.get("candidates")?.jsonArray ?: null
@@ -727,6 +756,7 @@ internal suspend fun AiGateway.streamGoogleAutomation(
     systemPrompt: String,
     userPrompt: String,
     imageBase64: String?,
+    firstDeltaTimeoutMillis: Long,
     onThoughtDelta: (String) -> Unit
 ): AutomationResult {
     AppDebugLogStore.i(STREAM_TAG, "streamGoogleAutomation request model=$model")
@@ -787,6 +817,7 @@ internal suspend fun AiGateway.streamGoogleAutomation(
     var loggedThoughtDelta = false
     sseClient.stream(
         request = baseRequest(provider, url, payload, googleApiKeyHeader = true),
+        firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
         onEvent = { _, _, _, data ->
             val root = runCatching { json.parseToJsonElement(data).jsonObject }.getOrNull() ?: return@stream null
             val candidate = root["candidates"]?.jsonArray?.firstOrNull()?.jsonObject ?: return@stream null

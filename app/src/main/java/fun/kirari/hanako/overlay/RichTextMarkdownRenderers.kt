@@ -717,12 +717,16 @@ private fun AnnotatedString.Builder.appendMarkdownNodeContent(
             val placeholder = runCatching {
                 with(density) {
                     assumeLatexSize(formula, style.fontSize.toPx()).let { rect ->
-                    Placeholder(
+                        if (rect.width() <= 0 || rect.height() <= 0) {
+                            null
+                        } else {
+                            Placeholder(
                             width = rect.width().toFloat().toSp(),
                             height = rect.height().toFloat().toSp(),
-                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                    )
-                }
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                            )
+                        }
+                    }
                 }
             }.getOrNull()
             if (placeholder != null) {

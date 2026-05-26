@@ -97,7 +97,8 @@ enum class ScreenCaptureMethod {
 
 @Serializable
 data class AutomationSettings(
-    val completionNotificationEnabled: Boolean = true
+    val completionNotificationEnabled: Boolean = true,
+    val autoModeTimeoutSeconds: Int = 30
 )
 
 @Serializable
@@ -121,14 +122,32 @@ data class ProcessingResult(
     val id: String = UUID.randomUUID().toString(),
     val assistantName: String,
     val route: ProcessingRoute,
+    val status: ProcessingStatus = ProcessingStatus.SUCCESS,
     val modelSummary: String = "",
+    val detail: String = "",
     val extractedText: String = "",
     val answer: String = "",
     val automationThought: String = "",
     val automationAction: AutomationActionRecord? = null,
     val screenshotBase64: String? = null,
+    val events: List<ProcessingEvent> = emptyList(),
     val createdAtMillis: Long = System.currentTimeMillis()
 )
+
+@Serializable
+data class ProcessingEvent(
+    val title: String,
+    val detail: String = "",
+    val createdAtMillis: Long = System.currentTimeMillis()
+)
+
+@Serializable
+enum class ProcessingStatus {
+    RUNNING,
+    SUCCESS,
+    ERROR,
+    TIMEOUT
+}
 
 @Serializable
 data class AutomationActionRecord(

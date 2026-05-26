@@ -28,6 +28,10 @@
 # Preserve Android Log calls in release builds for remote troubleshooting.
 -keep class android.util.Log { *; }
 
+# JLaTeXMath relies on reflection for environment/macro dispatch (matrix, bmatrix, etc.).
+-keep class org.scilab.forge.jlatexmath.** { *; }
+-keep class ru.noties.jlatexmath.** { *; }
+
 # Shizuku user service is instantiated out-of-process and must keep stable names.
 -keep class fun.kirari.hanako.capture.ShizukuShellService {
     public <init>();

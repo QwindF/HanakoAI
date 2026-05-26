@@ -9,8 +9,10 @@ import `fun`.kirari.hanako.automation.BubbleDisplayState
 import `fun`.kirari.hanako.capture.ScreenCaptureManager
 import `fun`.kirari.hanako.data.AutomationActionType
 import `fun`.kirari.hanako.data.ModelPurpose
+import `fun`.kirari.hanako.data.ProcessingEvent
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
+import `fun`.kirari.hanako.data.ProcessingStatus
 import `fun`.kirari.hanako.data.ModelSelection
 import `fun`.kirari.hanako.data.resolveModelName
 import `fun`.kirari.hanako.data.resolveModelProvider
@@ -24,7 +26,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 internal class OverlayViewModel(
     private val appContext: Context,
@@ -32,6 +36,7 @@ internal class OverlayViewModel(
     private val gateway: AiGateway
 ) : ViewModel() {
     private val tag = "HanakoOverlayVM"
+    private val processingTimeoutMillis = 90_000L
     private val _uiState = MutableStateFlow(OverlayUiState())
     val uiState: StateFlow<OverlayUiState> = _uiState.asStateFlow()
 
@@ -151,6 +156,22 @@ internal class OverlayViewModel(
         val textModel = state.settings.resolveModelName(ModelPurpose.TEXT)
         val visionProvider = state.settings.resolveModelProvider(ModelPurpose.VISION)
         val visionModel = state.settings.resolveModelName(ModelPurpose.VISION)
+        val firstDeltaTimeoutMillis = state.settings.automation.autoModeTimeoutSeconds.coerceAtLeast(1) * 1000L
+        val historyId = java.util.UUID.randomUUID().toString()
+        val screenshotBase64 = bitmap.toHistoryBase64()
+        val baseResult = ProcessingResult(
+            id = historyId,
+            assistantName = assistant.name,
+            route = state.settings.processingRoute,
+            status = ProcessingStatus.RUNNING,
+            modelSummary = when (state.settings.processingRoute) {
+                ProcessingRoute.OCR_THEN_LLM -> buildModelSummary(textModel, textProvider?.name)
+                ProcessingRoute.MULTIMODAL_DIRECT -> buildModelSummary(visionModel, visionProvider?.name)
+            },
+            detail = "请求已开始",
+            screenshotBase64 = screenshotBase64,
+            events = listOf(ProcessingEvent(title = "请求开始", detail = "已创建处理记录"))
+        )
 
         viewModelScope.launch {
             _uiState.update {
@@ -165,64 +186,94 @@ internal class OverlayViewModel(
                     sheetMode = OverlaySheetMode.RESULT
                 )
             }
+            upsertHistory(baseResult)
             runCatching {
-                when (state.settings.processingRoute) {
-                    ProcessingRoute.OCR_THEN_LLM -> {
-                        AppDebugLogStore.i(tag, "process route=OCR_THEN_LLM ocrModel=$ocrModel textModel=$textModel")
-                        if (ocrProvider == null || ocrModel.isBlank() || textProvider == null || textModel.isBlank()) {
-                            error("请先在模型设置中配置 OCR 和文本模型")
-                        }
-                        val (ocrText, answer) = gateway.streamOcrThenChat(
-                            ocrProvider = ocrProvider,
-                            ocrModel = ocrModel,
-                            textProvider = textProvider,
-                            textModel = textModel,
-                            assistant = assistant,
-                            bitmap = bitmap,
-                            onOcrDelta = { delta ->
-                                _uiState.update { current ->
-                                    current.copy(liveOcrText = current.liveOcrText + delta)
-                                }
-                            },
-                            onAnswerDelta = { delta ->
-                                _uiState.update { current ->
-                                    current.copy(liveAnswerText = current.liveAnswerText + delta)
-                                }
+                withTimeout(processingTimeoutMillis) {
+                    when (state.settings.processingRoute) {
+                        ProcessingRoute.OCR_THEN_LLM -> {
+                            AppDebugLogStore.i(tag, "process route=OCR_THEN_LLM ocrModel=$ocrModel textModel=$textModel")
+                            if (ocrProvider == null || ocrModel.isBlank() || textProvider == null || textModel.isBlank()) {
+                                error("请先在模型设置中配置 OCR 和文本模型")
                             }
-                        )
-                        ProcessingResult(
-                            assistantName = assistant.name,
-                            route = ProcessingRoute.OCR_THEN_LLM,
-                            modelSummary = buildModelSummary(textModel, textProvider?.name),
-                            extractedText = ocrText,
-                            answer = answer,
-                            screenshotBase64 = bitmap.toHistoryBase64()
-                        )
-                    }
+                            val (ocrText, answer) = gateway.streamOcrThenChat(
+                                ocrProvider = ocrProvider,
+                                ocrModel = ocrModel,
+                                textProvider = textProvider,
+                                textModel = textModel,
+                                assistant = assistant,
+                                bitmap = bitmap,
+                                firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
+                                onOcrDelta = { delta ->
+                                    _uiState.update { current ->
+                                        current.copy(liveOcrText = current.liveOcrText + delta)
+                                    }
+                                },
+                                onAnswerDelta = { delta ->
+                                    _uiState.update { current ->
+                                        current.copy(liveAnswerText = current.liveAnswerText + delta)
+                                    }
+                                }
+                            )
+                            val ocrCompleted = baseResult.copy(
+                                detail = "OCR 完成，等待答案生成",
+                                extractedText = ocrText,
+                                events = baseResult.events + ProcessingEvent(
+                                    title = "OCR 完成",
+                                    detail = "已提取 ${ocrText.length} 个字符"
+                                )
+                            )
+                            upsertHistory(ocrCompleted)
+                            ProcessingResult(
+                                id = historyId,
+                                assistantName = assistant.name,
+                                route = ProcessingRoute.OCR_THEN_LLM,
+                                status = ProcessingStatus.SUCCESS,
+                                modelSummary = buildModelSummary(textModel, textProvider?.name),
+                                detail = "处理完成",
+                                extractedText = ocrText,
+                                answer = answer,
+                                screenshotBase64 = screenshotBase64,
+                                events = ocrCompleted.events + ProcessingEvent(
+                                    title = "答案完成",
+                                    detail = "已生成 ${answer.length} 个字符"
+                                ),
+                                createdAtMillis = baseResult.createdAtMillis
+                            )
+                        }
 
-                    ProcessingRoute.MULTIMODAL_DIRECT -> {
-                        AppDebugLogStore.i(tag, "process route=MULTIMODAL_DIRECT visionModel=$visionModel")
-                        if (visionProvider == null || visionModel.isBlank()) {
-                            error("请先在模型设置中配置多模态模型")
-                        }
-                        val answer = gateway.streamVisionDirect(
-                            provider = visionProvider,
-                            model = visionModel,
-                            assistant = assistant,
-                            bitmap = bitmap,
-                            onAnswerDelta = { delta ->
-                                _uiState.update { current ->
-                                    current.copy(liveAnswerText = current.liveAnswerText + delta)
-                                }
+                        ProcessingRoute.MULTIMODAL_DIRECT -> {
+                            AppDebugLogStore.i(tag, "process route=MULTIMODAL_DIRECT visionModel=$visionModel")
+                            if (visionProvider == null || visionModel.isBlank()) {
+                                error("请先在模型设置中配置多模态模型")
                             }
-                        )
-                        ProcessingResult(
-                            assistantName = assistant.name,
-                            route = ProcessingRoute.MULTIMODAL_DIRECT,
-                            modelSummary = buildModelSummary(visionModel, visionProvider?.name),
-                            answer = answer,
-                            screenshotBase64 = bitmap.toHistoryBase64()
-                        )
+                            val answer = gateway.streamVisionDirect(
+                                provider = visionProvider,
+                                model = visionModel,
+                                assistant = assistant,
+                                bitmap = bitmap,
+                                firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
+                                onAnswerDelta = { delta ->
+                                    _uiState.update { current ->
+                                        current.copy(liveAnswerText = current.liveAnswerText + delta)
+                                    }
+                                }
+                            )
+                            ProcessingResult(
+                                id = historyId,
+                                assistantName = assistant.name,
+                                route = ProcessingRoute.MULTIMODAL_DIRECT,
+                                status = ProcessingStatus.SUCCESS,
+                                modelSummary = buildModelSummary(visionModel, visionProvider?.name),
+                                detail = "处理完成",
+                                answer = answer,
+                                screenshotBase64 = screenshotBase64,
+                                events = baseResult.events + ProcessingEvent(
+                                    title = "答案完成",
+                                    detail = "已生成 ${answer.length} 个字符"
+                                ),
+                                createdAtMillis = baseResult.createdAtMillis
+                            )
+                        }
                     }
                 }
             }.onSuccess { result ->
@@ -230,12 +281,7 @@ internal class OverlayViewModel(
                     tag,
                     "process success resultId=${result.id} answerLength=${result.answer.length} extractedLength=${result.extractedText.length}"
                 )
-                store.update {
-                    it.copy(
-                        lastResult = result,
-                        history = (listOf(result) + it.history).take(20)
-                    )
-                }
+                upsertHistory(result)
                 _uiState.update {
                     it.copy(
                         working = false,
@@ -250,11 +296,25 @@ internal class OverlayViewModel(
                 }
             }.onFailure { error ->
                 AppDebugLogStore.e(tag, "process failed", error)
+                val isTimeout = error is TimeoutCancellationException
+                val message = error.message?.ifBlank { null } ?: if (isTimeout) "请求超时（90 秒）" else "处理失败"
+                upsertHistory(
+                    baseResult.copy(
+                        status = if (isTimeout) ProcessingStatus.TIMEOUT else ProcessingStatus.ERROR,
+                        detail = message,
+                        extractedText = _uiState.value.liveOcrText,
+                        answer = _uiState.value.liveAnswerText,
+                        events = baseResult.events + ProcessingEvent(
+                            title = if (isTimeout) "请求超时" else "请求失败",
+                            detail = message
+                        )
+                    )
+                )
                 _uiState.update {
                     it.copy(
                         working = false,
                         autoRunState = AutoRunState.IDLE,
-                        error = error.message ?: "处理失败"
+                        error = message
                     )
                 }
             }
@@ -438,84 +498,126 @@ internal class OverlayViewModel(
         val textModel = state.settings.resolveModelName(ModelPurpose.TEXT)
         val visionProvider = state.settings.resolveModelProvider(ModelPurpose.VISION)
         val visionModel = state.settings.resolveModelName(ModelPurpose.VISION)
+        val firstDeltaTimeoutMillis = state.settings.automation.autoModeTimeoutSeconds.coerceAtLeast(1) * 1000L
+        val historyId = java.util.UUID.randomUUID().toString()
+        val screenshotBase64 = bitmap.toHistoryBase64()
+        val baseResult = ProcessingResult(
+            id = historyId,
+            assistantName = assistant.name,
+            route = state.settings.processingRoute,
+            status = ProcessingStatus.RUNNING,
+            modelSummary = when (state.settings.processingRoute) {
+                ProcessingRoute.OCR_THEN_LLM -> buildModelSummary(textModel, textProvider?.name)
+                ProcessingRoute.MULTIMODAL_DIRECT -> buildModelSummary(visionModel, visionProvider?.name)
+            },
+            detail = "自动流程已开始",
+            screenshotBase64 = screenshotBase64,
+            events = listOf(ProcessingEvent(title = "请求开始", detail = "已创建自动处理记录"))
+        )
+        upsertHistory(baseResult)
 
         runCatching {
-            val result = when (state.settings.processingRoute) {
-                ProcessingRoute.OCR_THEN_LLM -> {
-                    AppDebugLogStore.i(tag, "processAutoBitmap route=OCR_THEN_LLM ocrModel=$ocrModel textModel=$textModel")
-                    if (ocrProvider == null || ocrModel.isBlank() || textProvider == null || textModel.isBlank()) {
-                        error("请先在模型设置中配置 OCR 和文本模型")
-                    }
-                    val (ocrText, automationResult) = gateway.streamOcrThenAutomation(
-                        ocrProvider = ocrProvider,
-                        ocrModel = ocrModel,
-                        textProvider = textProvider,
-                        textModel = textModel,
-                        assistant = assistant,
-                        bitmap = bitmap,
-                        onOcrDelta = { delta ->
-                            _uiState.update { current ->
-                                current.copy(liveOcrText = current.liveOcrText + delta)
-                            }
-                        },
-                        onThoughtDelta = { delta ->
-                            _uiState.update { current ->
-                                current.copy(liveAnswerText = current.liveAnswerText + delta)
-                            }
+            withTimeout(processingTimeoutMillis) {
+                val result = when (state.settings.processingRoute) {
+                    ProcessingRoute.OCR_THEN_LLM -> {
+                        AppDebugLogStore.i(tag, "processAutoBitmap route=OCR_THEN_LLM ocrModel=$ocrModel textModel=$textModel")
+                        if (ocrProvider == null || ocrModel.isBlank() || textProvider == null || textModel.isBlank()) {
+                            error("请先在模型设置中配置 OCR 和文本模型")
                         }
-                    )
-                    ProcessingResult(
-                        assistantName = assistant.name,
-                        route = ProcessingRoute.OCR_THEN_LLM,
-                        modelSummary = buildModelSummary(textModel, textProvider?.name),
-                        extractedText = ocrText,
-                        answer = "",
-                        automationThought = automationResult.thought,
-                        automationAction = automationResult.action,
-                        screenshotBase64 = bitmap.toHistoryBase64()
-                    )
-                }
+                        val (ocrText, automationResult) = gateway.streamOcrThenAutomation(
+                            ocrProvider = ocrProvider,
+                            ocrModel = ocrModel,
+                            textProvider = textProvider,
+                            textModel = textModel,
+                            assistant = assistant,
+                            bitmap = bitmap,
+                            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
+                            onOcrDelta = { delta ->
+                                _uiState.update { current ->
+                                    current.copy(liveOcrText = current.liveOcrText + delta)
+                                }
+                            },
+                            onThoughtDelta = { delta ->
+                                _uiState.update { current ->
+                                    current.copy(liveAnswerText = current.liveAnswerText + delta)
+                                }
+                            }
+                        )
+                        val ocrCompleted = baseResult.copy(
+                            detail = "OCR 完成，等待自动动作",
+                            extractedText = ocrText,
+                            automationThought = automationResult.thought,
+                            events = baseResult.events + ProcessingEvent(
+                                title = "OCR 完成",
+                                detail = "已提取 ${ocrText.length} 个字符"
+                            )
+                        )
+                        upsertHistory(ocrCompleted)
+                        ProcessingResult(
+                            id = historyId,
+                            assistantName = assistant.name,
+                            route = ProcessingRoute.OCR_THEN_LLM,
+                            status = ProcessingStatus.SUCCESS,
+                            modelSummary = buildModelSummary(textModel, textProvider?.name),
+                            detail = "自动处理完成",
+                            extractedText = ocrText,
+                            answer = "",
+                            automationThought = automationResult.thought,
+                            automationAction = automationResult.action,
+                            screenshotBase64 = screenshotBase64,
+                            events = ocrCompleted.events + ProcessingEvent(
+                                title = "工具动作完成",
+                                detail = "${automationResult.action.type}: ${automationResult.action.text}"
+                            ),
+                            createdAtMillis = baseResult.createdAtMillis
+                        )
+                    }
 
-                ProcessingRoute.MULTIMODAL_DIRECT -> {
-                    AppDebugLogStore.i(tag, "processAutoBitmap route=MULTIMODAL_DIRECT visionModel=$visionModel")
-                    if (visionProvider == null || visionModel.isBlank()) {
-                        error("请先在模型设置中配置多模态模型")
-                    }
-                    val automationResult = gateway.streamAutomationDirect(
-                        provider = visionProvider,
-                        model = visionModel,
-                        assistant = assistant,
-                        bitmap = bitmap,
-                        onThoughtDelta = { delta ->
-                            _uiState.update { current ->
-                                current.copy(liveAnswerText = current.liveAnswerText + delta)
-                            }
+                    ProcessingRoute.MULTIMODAL_DIRECT -> {
+                        AppDebugLogStore.i(tag, "processAutoBitmap route=MULTIMODAL_DIRECT visionModel=$visionModel")
+                        if (visionProvider == null || visionModel.isBlank()) {
+                            error("请先在模型设置中配置多模态模型")
                         }
-                    )
-                    ProcessingResult(
-                        assistantName = assistant.name,
-                        route = ProcessingRoute.MULTIMODAL_DIRECT,
-                        modelSummary = buildModelSummary(visionModel, visionProvider.name),
-                        answer = "",
-                        automationThought = automationResult.thought,
-                        automationAction = automationResult.action,
-                        screenshotBase64 = bitmap.toHistoryBase64()
-                    )
+                        val automationResult = gateway.streamAutomationDirect(
+                            provider = visionProvider,
+                            model = visionModel,
+                            assistant = assistant,
+                            bitmap = bitmap,
+                            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
+                            onThoughtDelta = { delta ->
+                                _uiState.update { current ->
+                                    current.copy(liveAnswerText = current.liveAnswerText + delta)
+                                }
+                            }
+                        )
+                        ProcessingResult(
+                            id = historyId,
+                            assistantName = assistant.name,
+                            route = ProcessingRoute.MULTIMODAL_DIRECT,
+                            status = ProcessingStatus.SUCCESS,
+                            modelSummary = buildModelSummary(visionModel, visionProvider.name),
+                            detail = "自动处理完成",
+                            answer = "",
+                            automationThought = automationResult.thought,
+                            automationAction = automationResult.action,
+                            screenshotBase64 = screenshotBase64,
+                            events = baseResult.events + ProcessingEvent(
+                                title = "工具动作完成",
+                                detail = "${automationResult.action.type}: ${automationResult.action.text}"
+                            ),
+                            createdAtMillis = baseResult.createdAtMillis
+                        )
+                    }
                 }
-            }
-            val action = result.automationAction ?: error("自动模式未返回工具动作")
-            AppDebugLogStore.i(
-                tag,
-                "processAutoBitmap gateway success resultId=${result.id} thoughtLength=${result.automationThought.length} action=${action.type} actionText=${action.text}"
-            )
-            store.update {
-                it.copy(
-                    lastResult = result,
-                    history = (listOf(result) + it.history).take(20)
+                val action = result.automationAction ?: error("自动模式未返回工具动作")
+                AppDebugLogStore.i(
+                    tag,
+                    "processAutoBitmap gateway success resultId=${result.id} thoughtLength=${result.automationThought.length} action=${action.type} actionText=${action.text}"
                 )
+                upsertHistory(result)
+                AppDebugLogStore.i(tag, "processAutoBitmap history persisted resultId=${result.id}")
+                action to result
             }
-            AppDebugLogStore.i(tag, "processAutoBitmap history persisted resultId=${result.id}")
-            action to result
         }.onSuccess { (action, result) ->
             val bubbleState = when (action.type) {
                 AutomationActionType.SET_CLIPBOARD -> BubbleDisplayState.COPIED
@@ -541,15 +643,36 @@ internal class OverlayViewModel(
             }
         }.onFailure { error ->
             AppDebugLogStore.e(tag, "processAutoBitmap failed", error)
+            val isTimeout = error is TimeoutCancellationException
+            val message = error.message?.ifBlank { null } ?: if (isTimeout) "请求超时（90 秒）" else "处理失败"
+            upsertHistory(
+                baseResult.copy(
+                    status = if (isTimeout) ProcessingStatus.TIMEOUT else ProcessingStatus.ERROR,
+                    detail = message,
+                    extractedText = _uiState.value.liveOcrText,
+                    automationThought = _uiState.value.liveAnswerText,
+                    events = baseResult.events + ProcessingEvent(
+                        title = if (isTimeout) "请求超时" else "请求失败",
+                        detail = message
+                    )
+                )
+            )
             _uiState.update {
                 it.copy(
                     working = false,
                     autoRunState = AutoRunState.IDLE,
                     bubbleDisplayState = BubbleDisplayState.IDLE,
                     bubbleLetters = null,
-                    error = error.message ?: "处理失败"
+                    error = message
                 )
             }
+        }
+    }
+
+    private suspend fun upsertHistory(result: ProcessingResult) {
+        store.update { current ->
+            val history = (listOf(result) + current.history.filterNot { it.id == result.id }).take(20)
+            current.copy(lastResult = result, history = history)
         }
     }
 
