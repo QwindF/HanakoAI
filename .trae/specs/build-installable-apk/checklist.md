@@ -1,0 +1,9 @@
+- [x] Android SDK 已安装，platforms/android-36 和 build-tools 目录存在
+- [x] ANDROID_HOME 环境变量已配置，local.properties 已创建
+- [x] SDK licenses 已接受
+- [x] 自签名密钥库文件已生成
+- [x] keystore.properties 配置文件已创建且包含正确的四个属性
+- [x] ./gradlew assembleRelease 执行成功
+- [x] app-release.apk 文件存在且大小 > 0
+- [x] apksigner verify 验证 APK 签名通过
+- [x] aapt dump badging 输出正确的包名和版本信息
