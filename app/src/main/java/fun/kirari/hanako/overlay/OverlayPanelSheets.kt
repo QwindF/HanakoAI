@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -43,6 +42,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -296,8 +296,7 @@ internal fun CropOverlaySheet(
             }
         }
 
-        @Suppress("UNUSED_EXPRESSION")
-        closeRequested
+        SideEffect { closeRequested }
     }
 
     if (showAssistantDialog) {
@@ -536,8 +535,7 @@ internal fun ResultOverlaySheet(
             }
         }
 
-        @Suppress("UNUSED_EXPRESSION")
-        closeRequested
+        SideEffect { closeRequested }
     }
 }
 

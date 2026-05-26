@@ -6,10 +6,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -60,7 +60,6 @@ import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.ScreenCaptureMethod
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun HeroSection(
     overlayEnabled: Boolean,
@@ -70,9 +69,11 @@ fun HeroSection(
     onSelectRoute: (ProcessingRoute) -> Unit,
     onOpenOverlayPermission: () -> Unit,
     onToggleOverlay: (Boolean) -> Unit,
-    onStartAutoMode: () -> Unit
+    onStartAutoMode: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
+        modifier = modifier,
         shape = RoundedCornerShape(28.dp),
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.95f),
         tonalElevation = 2.dp
@@ -214,29 +215,29 @@ fun HeroSection(
                     val buttonTextColor = if (overlayEnabled) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.primaryContainer
 
                     Button(
-                        onClick = { },
-                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            onToggleOverlay(!overlayEnabled && hasOverlayPermission)
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = {
+                                        if (!overlayEnabled && hasOverlayPermission) {
+                                            onStartAutoMode()
+                                        }
+                                    }
+                                )
+                            },
                         enabled = hasOverlayPermission,
                         shape = RoundedCornerShape(16.dp),
-                        interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = buttonColor,
                             contentColor = buttonTextColor
                         )
                     ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .combinedClickable(
-                                    onClick = {
-                                        onToggleOverlay(!overlayEnabled && hasOverlayPermission)
-                                    },
-                                    onLongClick = {
-                                        if (!overlayEnabled && hasOverlayPermission) {
-                                            onStartAutoMode()
-                                        }
-                                    }
-                                ),
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -381,48 +382,13 @@ fun ModeSelectorItem(
 }
 
 @Composable
-fun RouteSection(
-    route: ProcessingRoute,
-    onSelect: (ProcessingRoute) -> Unit
-) {
-    SectionCard(title = "工作模式") {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            ProcessingRoute.entries.forEach { item ->
-                val isSelected = route == item
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(64.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable { onSelect(item) },
-                    shape = RoundedCornerShape(14.dp),
-                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                    border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
-                ) {
-                    Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(8.dp)) {
-                        Text(
-                            if (item == ProcessingRoute.OCR_THEN_LLM) "OCR+语言模型" else "多模态模型",
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun AssistantSelector(
     assistant: AssistantPreset,
     onChange: (AssistantPreset) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Column(
-        modifier = Modifier.animateContentSize(),
+        modifier = modifier.animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -463,7 +429,8 @@ fun DraftOutlinedTextField(
     value: String,
     onCommit: (String) -> Unit,
     label: String,
-    minLines: Int = 1
+    minLines: Int = 1,
+    modifier: Modifier = Modifier
 ) {
     var textFieldValue by rememberSaveable(fieldKey, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(value, TextRange(value.length)))
@@ -486,7 +453,7 @@ fun DraftOutlinedTextField(
     OutlinedTextField(
         value = textFieldValue,
         onValueChange = { textFieldValue = it },
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { focusState ->
                 isFocused = focusState.isFocused
@@ -503,10 +470,11 @@ fun DraftOutlinedTextField(
 @Composable
 fun SectionCard(
     title: String,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 6.dp)
     ) {

@@ -25,7 +25,8 @@ fun CustomModelDialog(
     title: String,
     initialValue: String = "",
     onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
+    onConfirm: (String) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     var value by remember(initialValue) { mutableStateOf(initialValue) }
     val trimmedValue = value.trim()
@@ -35,7 +36,7 @@ fun CustomModelDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false)
     ) {
         Card(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxWidth(0.92f)
                 .heightIn(max = 420.dp)
         ) {

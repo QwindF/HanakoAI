@@ -327,6 +327,8 @@ fun HanakoApp(viewModel: MainViewModel) {
                             onUpdateProvider = viewModel::updateProvider,
                             onViewModels = { providerModelsPreviewId = provider.id }
                         )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
                     }
                 }
                 composable(ROUTE_SETTINGS_MODEL) {
@@ -354,6 +356,8 @@ fun HanakoApp(viewModel: MainViewModel) {
                             assistant = assistant,
                             onUpdateAssistant = viewModel::updateAssistant
                         )
+                    } else {
+                        LaunchedEffect(Unit) { navController.popBackStack() }
                     }
                 }
                 composable(ROUTE_SETTINGS_MORE) {
@@ -480,13 +484,22 @@ private fun MainShellScreen(
         pageCount = { Screen.entries.size }
     )
 
+    var animateTarget by remember { mutableStateOf<Int?>(null) }
+
     LaunchedEffect(currentScreen) {
-        if (pagerState.targetPage != currentScreen.ordinal && pagerState.currentPage != currentScreen.ordinal) {
-            pagerState.animateScrollToPage(currentScreen.ordinal)
+        val target = currentScreen.ordinal
+        if (target != pagerState.currentPage || pagerState.currentPageOffsetFraction != 0f) {
+            animateTarget = target
+            try {
+                pagerState.animateScrollToPage(target)
+            } finally {
+                animateTarget = null
+            }
         }
     }
 
     LaunchedEffect(pagerState.settledPage) {
+        if (animateTarget != null) return@LaunchedEffect
         val settledScreen = Screen.entries[pagerState.settledPage]
         if (currentScreen != settledScreen) {
             onScreenChange(settledScreen)

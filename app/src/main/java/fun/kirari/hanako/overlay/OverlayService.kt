@@ -584,23 +584,6 @@ class OverlayService : Service(), LifecycleOwner, ViewModelStoreOwner, SavedStat
         }
     }
 
-    private fun showOrUpdatePanelDeprecated() {
-        if (panelView != null) return
-        val composeView = androidx.compose.ui.platform.ComposeView(this).apply {
-            setViewTreeLifecycleOwner(this@OverlayService)
-            setViewTreeViewModelStoreOwner(this@OverlayService)
-            setViewTreeSavedStateRegistryOwner(this@OverlayService)
-            setContent {
-                `fun`.kirari.hanako.ui.theme.HanakoTheme {
-                    OverlayPanel(
-                        viewModel = overlayViewModel,
-                        onDismiss = { overlayViewModel.closeSheet() }
-                    )
-                }
-            }
-        }
-    }
-
     private fun updateBubbleAppearance(
         launchMode: OverlayLaunchMode,
         autoRunState: AutoRunState,
