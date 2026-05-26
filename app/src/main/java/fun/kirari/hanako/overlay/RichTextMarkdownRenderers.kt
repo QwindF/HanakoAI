@@ -452,13 +452,14 @@ private fun HtmlBlock(
     modifier: Modifier = Modifier
 ) {
     val contentColor = MaterialTheme.colorScheme.onSurface.toArgb()
+    val bodyTextSize = MaterialTheme.typography.bodyMedium.fontSize.value
     AndroidView(
         modifier = modifier,
         factory = { context ->
             TextView(context).apply {
                 setTextColor(contentColor)
                 setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                textSize = 14f
+                textSize = bodyTextSize
             }
         },
         update = { textView ->

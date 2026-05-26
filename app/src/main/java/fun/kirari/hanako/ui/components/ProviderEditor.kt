@@ -54,11 +54,12 @@ import kotlinx.coroutines.delay
 fun ProviderEditor(
     provider: ModelProviderConfig,
     onChange: (ModelProviderConfig) -> Unit,
-    onImportResult: (String) -> Unit = {}
+    onImportResult: (String) -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     Column(
-        modifier = Modifier.animateContentSize(),
+        modifier = modifier.animateContentSize(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
@@ -254,9 +255,11 @@ fun ModelButtonField(
     label: String,
     value: String,
     onPick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Surface(
         onClick = onPick,
+        modifier = modifier,
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(

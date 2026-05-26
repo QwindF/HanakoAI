@@ -464,9 +464,9 @@ private fun formatHistorySize(charCount: Int): String {
     val bytes = charCount.toLong()
     if (bytes < 1024L) return "${bytes}B"
     val kb = bytes / 1024.0
-    if (kb < 1024.0) return String.format("%.1fKB", kb)
+    if (kb < 1024.0) return String.format(java.util.Locale.US, "%.1fKB", kb)
     val mb = kb / 1024.0
-    return String.format("%.1fMB", mb)
+    return String.format(java.util.Locale.US, "%.1fMB", mb)
 }
 
 private fun copyToClipboard(context: Context, label: String, text: String) {

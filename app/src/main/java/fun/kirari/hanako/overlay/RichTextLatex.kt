@@ -69,15 +69,19 @@ internal fun LatexText(
     )
     val resolvedFontSize = if (fontSize == TextUnit.Unspecified) LocalTextStyle.current.fontSize else fontSize
     val drawable = remember(latex, resolvedFontSize, color) {
-        runCatching {
-            JLatexMathDrawable.builder(processLatex(latex))
-                .textSize(with(density) { resolvedFontSize.toPx() })
-                .color(resolvedStyle.color.toArgb())
-                .background(Color.Transparent.toArgb())
-                .padding(0)
-                .align(JLatexMathDrawable.ALIGN_LEFT)
-                .build()
-        }.getOrNull()
+        if (latex.length > 500) {
+            null
+        } else {
+            runCatching {
+                JLatexMathDrawable.builder(processLatex(latex))
+                    .textSize(with(density) { resolvedFontSize.toPx() })
+                    .color(resolvedStyle.color.toArgb())
+                    .background(Color.Transparent.toArgb())
+                    .padding(0)
+                    .align(JLatexMathDrawable.ALIGN_LEFT)
+                    .build()
+            }.getOrNull()
+        }
     }
 
     if (drawable == null) {
@@ -102,6 +106,7 @@ internal fun LatexText(
 }
 
 internal fun assumeLatexSize(latex: String, fontSize: Float): Rect {
+    if (latex.length > 500) return Rect(0, 0, 0, 0)
     return runCatching {
         JLatexMathDrawable.builder(processLatex(latex))
             .textSize(fontSize)
