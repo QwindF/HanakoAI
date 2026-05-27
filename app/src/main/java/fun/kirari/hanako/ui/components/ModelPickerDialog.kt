@@ -231,9 +231,6 @@ fun ModelPickerListContent(
 
     if (models.isEmpty()) {
         Text("没有匹配的模型")
-        Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
-            CircularProgressIndicator()
-        }
         return
     }
 
