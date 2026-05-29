@@ -20,8 +20,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -29,6 +31,7 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -390,8 +393,10 @@ fun ProviderSettingsScreen(
 @Composable
 fun ProviderDetailScreen(
     provider: ModelProviderConfig,
+    connectionTestState: ConnectionTestState,
     onUpdateProvider: (ModelProviderConfig) -> Unit,
-    onViewModels: () -> Unit
+    onViewModels: () -> Unit,
+    onTestConnection: (ModelProviderConfig) -> Unit
 ) {
     val context = LocalContext.current
     LazyColumn(
@@ -415,6 +420,23 @@ fun ProviderDetailScreen(
                     ) {
                         Text("查看可用模型")
                     }
+                    OutlinedButton(
+                        onClick = { onTestConnection(provider) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = connectionTestState.status != ConnectionTestStatus.TESTING
+                    ) {
+                        if (connectionTestState.status == ConnectionTestStatus.TESTING) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.size(8.dp))
+                            Text("测试中...")
+                        } else {
+                            Text("测试连接")
+                        }
+                    }
+                    ConnectionTestResultBanner(connectionTestState)
                 }
             }
         }
@@ -653,6 +675,73 @@ private fun MoreSettingCard(
                 }
             }
             content()
+        }
+    }
+}
+
+@Composable
+private fun ConnectionTestResultBanner(state: ConnectionTestState) {
+    when (state.status) {
+        ConnectionTestStatus.IDLE, ConnectionTestStatus.TESTING -> {}
+        ConnectionTestStatus.SUCCESS -> {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Text(
+                        "连接成功 (${state.latencyMs}ms)",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+        ConnectionTestStatus.FAILED -> {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.errorContainer
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.ErrorOutline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "连接失败",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            state.errorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
+            }
         }
     }
 }

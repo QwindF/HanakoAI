@@ -21,18 +21,36 @@ import `fun`.kirari.hanako.data.LOCAL_OCR_MODEL_ID
 import `fun`.kirari.hanako.data.LOCAL_OCR_PROVIDER_ID
 import `fun`.kirari.hanako.data.modelSelectionFor
 import `fun`.kirari.hanako.localocr.LocalOcrManager
+import `fun`.kirari.hanako.network.ConnectionTestResult
+import `fun`.kirari.hanako.network.ProviderModelsApi
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
 
+enum class ConnectionTestStatus {
+    IDLE, TESTING, SUCCESS, FAILED
+}
+
+data class ConnectionTestState(
+    val status: ConnectionTestStatus = ConnectionTestStatus.IDLE,
+    val latencyMs: Long = 0,
+    val errorMessage: String = ""
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as HanakoApplication).container
     private val repository: SettingsRepository = container.settingsRepository
     private val localOcrManager: LocalOcrManager = container.localOcrManager
+    private val providerModelsApi = ProviderModelsApi(container.networkClientProvider)
+
+    private val _connectionTestState = MutableStateFlow(ConnectionTestState())
+    val connectionTestState: StateFlow<ConnectionTestState> = _connectionTestState.asStateFlow()
 
     val settings: StateFlow<AppSettings> = repository.settings.stateIn(
         scope = viewModelScope,
@@ -232,6 +250,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 history = listOf(result) + it.history
             ) }
         }
+    }
+
+    fun testProviderConnection(provider: ModelProviderConfig) {
+        _connectionTestState.value = ConnectionTestState(status = ConnectionTestStatus.TESTING)
+        viewModelScope.launch {
+            val trustAll = settings.value.trustAllHttpsCertificates
+            val result = providerModelsApi.testConnection(provider, trustAll)
+            _connectionTestState.value = if (result.success) {
+                ConnectionTestState(
+                    status = ConnectionTestStatus.SUCCESS,
+                    latencyMs = result.latencyMs
+                )
+            } else {
+                ConnectionTestState(
+                    status = ConnectionTestStatus.FAILED,
+                    latencyMs = result.latencyMs,
+                    errorMessage = result.errorMessage
+                )
+            }
+        }
+    }
+
+    fun resetConnectionTest() {
+        _connectionTestState.value = ConnectionTestState()
     }
 
     fun clearDebugLogs() {

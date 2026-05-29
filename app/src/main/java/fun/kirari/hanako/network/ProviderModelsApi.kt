@@ -17,6 +17,12 @@ data class RemoteModelOption(
     val displayName: String = id
 )
 
+data class ConnectionTestResult(
+    val success: Boolean,
+    val latencyMs: Long = 0,
+    val errorMessage: String = ""
+)
+
 class ProviderModelsApi(
     private val clientProvider: NetworkClientProvider = NetworkClientProvider(),
     private val json: Json = Json { ignoreUnknownKeys = true }
@@ -57,6 +63,55 @@ class ProviderModelsApi(
                 ?: id
             RemoteModelOption(id = id, displayName = displayName)
         }
+    }
+
+    suspend fun testConnection(
+        provider: ModelProviderConfig,
+        trustAllHttpsCertificates: Boolean = false
+    ): ConnectionTestResult = withContext(Dispatchers.IO) {
+        val startTime = System.currentTimeMillis()
+        try {
+            val request = Request.Builder()
+                .url(provider.modelsRequestUrl())
+                .addHeader("Authorization", "Bearer ${provider.apiKey}")
+                .get()
+                .build()
+
+            clientProvider.client(trustAllHttpsCertificates).newCall(request).execute().use { response ->
+                val latency = System.currentTimeMillis() - startTime
+                if (!response.isSuccessful) {
+                    val body = response.body?.string().orEmpty()
+                    val message = parseErrorMessage(body) ?: "HTTP ${response.code}"
+                    return@withContext ConnectionTestResult(
+                        success = false,
+                        latencyMs = latency,
+                        errorMessage = message
+                    )
+                }
+                return@withContext ConnectionTestResult(success = true, latencyMs = latency)
+            }
+        } catch (e: Exception) {
+            val latency = System.currentTimeMillis() - startTime
+            val message = when {
+                e is java.net.UnknownHostException -> "无法解析主机名"
+                e is java.net.ConnectException -> "连接被拒绝"
+                e is java.net.SocketTimeoutException -> "连接超时"
+                e is javax.net.ssl.SSLException -> "SSL 证书错误"
+                else -> e.message ?: "未知错误"
+            }
+            return@withContext ConnectionTestResult(
+                success = false,
+                latencyMs = latency,
+                errorMessage = message
+            )
+        }
+    }
+
+    private fun parseErrorMessage(body: String): String? {
+        return runCatching {
+            val root = json.parseToJsonElement(body).jsonObject
+            root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+        }.getOrNull()
     }
 
     private fun parseGoogleModels(body: String): List<RemoteModelOption> {

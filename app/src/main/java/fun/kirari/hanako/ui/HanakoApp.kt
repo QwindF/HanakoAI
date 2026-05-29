@@ -336,10 +336,13 @@ fun HanakoApp(viewModel: MainViewModel) {
                     val providerId = entry.arguments?.getString(ARG_PROVIDER_ID)
                     val provider = settings.providers.firstOrNull { it.id == providerId }
                     if (provider != null) {
+                        val connectionTestState by viewModel.connectionTestState.collectAsState()
                         ProviderDetailScreen(
                             provider = provider,
+                            connectionTestState = connectionTestState,
                             onUpdateProvider = viewModel::updateProvider,
-                            onViewModels = { providerModelsPreviewId = provider.id }
+                            onViewModels = { providerModelsPreviewId = provider.id },
+                            onTestConnection = viewModel::testProviderConnection
                         )
                     } else {
                         LaunchedEffect(Unit) { navController.popBackStack() }
