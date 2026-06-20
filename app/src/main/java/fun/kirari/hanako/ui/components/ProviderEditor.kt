@@ -55,6 +55,7 @@ fun ProviderEditor(
     provider: ModelProviderConfig,
     onChange: (ModelProviderConfig) -> Unit,
     onImportResult: (String) -> Unit = {},
+    readOnly: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -73,6 +74,7 @@ fun ProviderEditor(
                 color = MaterialTheme.colorScheme.primary
             )
             TextButton(
+                enabled = !readOnly,
                 onClick = {
                     val clipboard = context.getSystemService(ClipboardManager::class.java)
                     val text = clipboard
@@ -110,6 +112,7 @@ fun ProviderEditor(
 
         ProviderTypeSelector(
             kind = provider.kind,
+            enabled = !readOnly,
             onChange = { nextKind ->
                 onChange(provider.copy(kind = nextKind))
             }
@@ -119,14 +122,16 @@ fun ProviderEditor(
             fieldKey = "${provider.id}:name",
             value = provider.name,
             onCommit = { onChange(provider.copy(name = it)) },
-            label = "提供方名称"
+            label = "提供方名称",
+            readOnly = readOnly
         )
 
         EditableField(
             fieldKey = "${provider.id}:baseUrl",
             value = provider.baseUrl,
             onCommit = { onChange(provider.copy(baseUrl = it)) },
-            label = "Base URL"
+            label = "Base URL",
+            readOnly = readOnly
         )
 
         if (provider.baseUrl.isNotBlank()) {
@@ -149,7 +154,8 @@ fun ProviderEditor(
             value = provider.apiKey,
             onCommit = { onChange(provider.copy(apiKey = it)) },
             label = "API Key",
-            password = true
+            password = true,
+            readOnly = readOnly
         )
     }
 }
@@ -158,12 +164,17 @@ fun ProviderEditor(
 @Composable
 private fun ProviderTypeSelector(
     kind: ProviderKind,
+    enabled: Boolean,
     onChange: (ProviderKind) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = !expanded }
+        expanded = expanded && enabled,
+        onExpandedChange = {
+            if (enabled) {
+                expanded = !expanded
+            }
+        }
     ) {
         OutlinedTextField(
             value = kind.displayName,
@@ -173,11 +184,12 @@ private fun ProviderTypeSelector(
                 .fillMaxWidth()
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable, true),
             label = { Text("提供方类型") },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            enabled = enabled,
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && enabled) },
             shape = RoundedCornerShape(16.dp)
         )
         ExposedDropdownMenu(
-            expanded = expanded,
+            expanded = expanded && enabled,
             onDismissRequest = { expanded = false },
             modifier = Modifier.heightIn(max = 320.dp)
         ) {
@@ -200,7 +212,8 @@ private fun EditableField(
     value: String,
     onCommit: (String) -> Unit,
     label: String,
-    password: Boolean = false
+    password: Boolean = false,
+    readOnly: Boolean = false
 ) {
     var visible by remember { mutableStateOf(false) }
     var textFieldValue by rememberSaveable(fieldKey, stateSaver = TextFieldValue.Saver) {
@@ -223,7 +236,11 @@ private fun EditableField(
 
     OutlinedTextField(
         value = textFieldValue,
-        onValueChange = { textFieldValue = it },
+        onValueChange = {
+            if (!readOnly) {
+                textFieldValue = it
+            }
+        },
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { focusState ->
@@ -233,13 +250,14 @@ private fun EditableField(
                 }
             },
         label = { Text(label) },
+        readOnly = readOnly,
         visualTransformation = if (password && !visible) PasswordVisualTransformation() else VisualTransformation.None,
         shape = RoundedCornerShape(16.dp),
         trailingIcon = if (!password) {
             null
         } else {
             {
-                IconButton(onClick = { visible = !visible }) {
+                IconButton(onClick = { visible = !visible }, enabled = !readOnly) {
                     Icon(
                         imageVector = if (visible) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
                         contentDescription = if (visible) "隐藏密码" else "显示密码"

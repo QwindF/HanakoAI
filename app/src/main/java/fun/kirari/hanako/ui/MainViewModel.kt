@@ -1,9 +1,11 @@
 package `fun`.kirari.hanako.ui
 
 import android.app.Application
+import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import `fun`.kirari.hanako.HanakoApplication
+import `fun`.kirari.hanako.BuildConfig
 import `fun`.kirari.hanako.data.AppSettings
 import `fun`.kirari.hanako.data.AssistantPreset
 import `fun`.kirari.hanako.data.AutomationSettings
@@ -20,9 +22,13 @@ import `fun`.kirari.hanako.debug.AppDebugLogStore
 import `fun`.kirari.hanako.data.LOCAL_OCR_MODEL_ID
 import `fun`.kirari.hanako.data.LOCAL_OCR_PROVIDER_ID
 import `fun`.kirari.hanako.data.modelSelectionFor
+import `fun`.kirari.hanako.data.KIRARI_PROVIDER_ID
+import `fun`.kirari.hanako.data.KirariSettings
+import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.localocr.LocalOcrManager
 import `fun`.kirari.hanako.network.ConnectionTestResult
 import `fun`.kirari.hanako.network.ProviderModelsApi
+import `fun`.kirari.hanako.network.KirariAuthHandleResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -49,11 +55,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as HanakoApplication).container
     private val repository: SettingsRepository = container.settingsRepository
     private val localOcrManager: LocalOcrManager = container.localOcrManager
-    private val providerModelsApi = ProviderModelsApi(container.networkClientProvider)
+    private val providerModelsApi = container.providerModelsApi
+    private val kirariAuthManager = container.kirariAuthManager
 
     private val _connectionTestState = MutableStateFlow(ConnectionTestState())
     val connectionTestState: StateFlow<ConnectionTestState> = _connectionTestState.asStateFlow()
     private var connectionTestJob: Job? = null
+    private val _kirariAuthMessage = MutableStateFlow<String?>(null)
+    val kirariAuthMessage: StateFlow<String?> = _kirariAuthMessage.asStateFlow()
 
     val settings: StateFlow<AppSettings> = repository.settings.stateIn(
         scope = viewModelScope,
@@ -66,6 +75,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateProvider(provider: ModelProviderConfig) {
+        if (provider.id == KIRARI_PROVIDER_ID) return
         viewModelScope.launch {
             repository.update { current ->
                 current.copy(
@@ -94,12 +104,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteProvider(providerId: String) {
+        if (providerId == KIRARI_PROVIDER_ID) return
         viewModelScope.launch {
             repository.update { current ->
                 val remaining = current.providers.filterNot { it.id == providerId }
                 val providers = if (remaining.isEmpty()) listOf(defaultProvider()) else remaining
                 val selectedProviderId = providers.firstOrNull()?.id
-                val fallbackProvider = providers.firstOrNull()
+                val fallbackProvider = current.copy(providers = providers).availableProviders().firstOrNull()
                 current.copy(
                     providers = providers,
                     selectedProviderId = selectedProviderId,
@@ -227,6 +238,59 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateKirariSettings(transform: (KirariSettings) -> KirariSettings) {
+        viewModelScope.launch {
+            repository.update { current ->
+                current.copy(kirari = transform(current.kirari))
+            }
+        }
+    }
+
+    fun startKirariLogin(onReady: (String) -> Unit) {
+        viewModelScope.launch {
+            runCatching {
+                kirariAuthManager.buildAuthorizationRequest(
+                    serverUrl = settings.value.kirari.serverUrl,
+                    trustAllHttpsCertificates = settings.value.trustAllHttpsCertificates
+                )
+            }.onSuccess { request ->
+                onReady(request.authorizationUrl)
+            }.onFailure { error ->
+                _kirariAuthMessage.value = error.message ?: "Kirari 登录准备失败"
+            }
+        }
+    }
+
+    fun handleKirariRedirect(uri: Uri) {
+        if (!kirariAuthManager.matchesRedirect(uri)) return
+        viewModelScope.launch {
+            val result = runCatching {
+                kirariAuthManager.handleRedirect(
+                    redirectUri = uri,
+                    settings = settings.value,
+                    trustAllHttpsCertificates = settings.value.trustAllHttpsCertificates
+                )
+            }.getOrElse { error ->
+                KirariAuthHandleResult(
+                    success = false,
+                    message = error.message ?: "Kirari 登录失败"
+                )
+            }
+            _kirariAuthMessage.value = result.message
+        }
+    }
+
+    fun logoutKirari() {
+        viewModelScope.launch {
+            kirariAuthManager.clearAuth()
+            _kirariAuthMessage.value = "已退出 The Kirari Network"
+        }
+    }
+
+    fun consumeKirariAuthMessage() {
+        _kirariAuthMessage.value = null
+    }
+
     fun clearHistory() {
         viewModelScope.launch {
             repository.update { it.copy(history = emptyList(), lastResult = null) }
@@ -286,6 +350,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearDebugLogs() {
         AppDebugLogStore.clear()
     }
+
+    fun hasKirariClientId(): Boolean = BuildConfig.KIRARI_OIDC_CLIENT_ID.isNotBlank()
 
     private fun remapSelection(
         selection: ModelSelection,

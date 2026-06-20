@@ -11,5 +11,11 @@ class HanakoApplication : Application() {
         super.onCreate()
         JLatexMathAndroid.init(this)
         container = AppContainer(applicationContext)
+        instance = this
+    }
+
+    companion object {
+        lateinit var instance: HanakoApplication
+            private set
     }
 }

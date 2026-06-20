@@ -42,6 +42,7 @@ internal object ToolRegistry {
         ProviderKind.OPENAI_RESPONSES -> formatResponses(tools)
         ProviderKind.ANTHROPIC -> formatAnthropic(tools)
         ProviderKind.GOOGLE -> formatGoogle(tools)
+        ProviderKind.KIRARI_NETWORK -> formatChatCompletions(tools)
     }
 
     private fun formatChatCompletions(tools: List<ToolDef>): JsonArray = buildJsonArray {

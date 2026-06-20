@@ -2,12 +2,15 @@ package `fun`.kirari.hanako.network
 
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.ProviderKind
+import `fun`.kirari.hanako.data.SettingsStore
 import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
 
 internal class UnifiedLLMClient(
     private val clientProvider: NetworkClientProvider = NetworkClientProvider(),
+    private val kirariAuthManager: KirariAuthManager? = null,
+    private val settingsStore: SettingsStore? = null,
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
     private val tag = "HanakoUnifiedLLM"
@@ -29,6 +32,12 @@ internal class UnifiedLLMClient(
             ProviderKind.OPENAI_RESPONSES -> OpenAiResponsesAdapter(sseClient, json)
             ProviderKind.ANTHROPIC -> AnthropicAdapter(sseClient, json)
             ProviderKind.GOOGLE -> GoogleAdapter(sseClient, json)
+            ProviderKind.KIRARI_NETWORK -> KirariChatAdapter(
+                clientProvider = clientProvider,
+                kirariAuthManager = requireNotNull(kirariAuthManager) { "KirariAuthManager is required for Kirari provider" },
+                settingsStore = requireNotNull(settingsStore) { "SettingsStore is required for Kirari provider" },
+                json = json
+            )
         }
         return adapter.stream(
             StreamRequest(
@@ -38,7 +47,8 @@ internal class UnifiedLLMClient(
                 userPrompt = userPrompt,
                 imagesBase64 = imagesBase64,
                 tools = tools,
-                firstDeltaTimeoutMillis = firstDeltaTimeoutMillis
+                firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
+                trustAllHttpsCertificates = trustAllHttpsCertificates
             )
         )
     }

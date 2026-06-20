@@ -1,5 +1,6 @@
 package `fun`.kirari.hanako.data
 
+import `fun`.kirari.hanako.BuildConfig
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -8,7 +9,8 @@ enum class ProviderKind {
     OPENAI_COMPATIBLE,
     OPENAI_RESPONSES,
     ANTHROPIC,
-    GOOGLE
+    GOOGLE,
+    KIRARI_NETWORK
 }
 
 @Serializable
@@ -40,6 +42,23 @@ data class ModelSelection(
 
 const val LOCAL_OCR_PROVIDER_ID = "__local_mlkit__"
 const val LOCAL_OCR_MODEL_ID = "mlkit_chinese_ocr"
+const val KIRARI_PROVIDER_ID = "__kirari_network__"
+
+@Serializable
+data class KirariSettings(
+    val serverUrl: String = BuildConfig.KIRARI_SERVER_URL,
+    val auth: KirariAuthState = KirariAuthState()
+)
+
+@Serializable
+data class KirariAuthState(
+    val accessToken: String = "",
+    val refreshToken: String = "",
+    val idToken: String = "",
+    val tokenType: String = "Bearer",
+    val scope: String = "",
+    val accessTokenExpiresAtMillis: Long = 0L
+)
 
 @Serializable
 data class LocalOcrSettings(
@@ -56,6 +75,7 @@ val ProviderKind.displayName: String
         ProviderKind.OPENAI_RESPONSES -> "OpenAI Responses"
         ProviderKind.ANTHROPIC -> "Anthropic"
         ProviderKind.GOOGLE -> "Google Gemini"
+        ProviderKind.KIRARI_NETWORK -> "The Kirari Network"
     }
 
 val ProviderKind.defaultBaseUrl: String
@@ -64,6 +84,7 @@ val ProviderKind.defaultBaseUrl: String
         ProviderKind.OPENAI_RESPONSES -> "https://api.openai.com/v1"
         ProviderKind.ANTHROPIC -> "https://api.anthropic.com/v1"
         ProviderKind.GOOGLE -> "https://generativelanguage.googleapis.com/v1beta"
+        ProviderKind.KIRARI_NETWORK -> BuildConfig.KIRARI_SERVER_URL
     }
 
 val ProviderKind.modelsRequestSuffix: String
@@ -72,6 +93,7 @@ val ProviderKind.modelsRequestSuffix: String
         ProviderKind.OPENAI_RESPONSES -> "/models"
         ProviderKind.ANTHROPIC -> "/models"
         ProviderKind.GOOGLE -> "/models?pageSize=100"
+        ProviderKind.KIRARI_NETWORK -> "/api/llm/meta"
     }
 
 val ProviderKind.requestPathSuffix: String
@@ -80,6 +102,7 @@ val ProviderKind.requestPathSuffix: String
         ProviderKind.OPENAI_RESPONSES -> "/responses"
         ProviderKind.ANTHROPIC -> "/messages"
         ProviderKind.GOOGLE -> "/models"
+        ProviderKind.KIRARI_NETWORK -> "/api/llm/chat/completions"
     }
 
 fun ModelProviderConfig.requestPreviewUrl(): String = "${baseUrl.trimEnd('/')}${kind.requestPathSuffix}"
@@ -130,6 +153,7 @@ data class AppSettings(
     val visionModelSelection: ModelSelection = ModelSelection(),
     val ocrModelSelection: ModelSelection = ModelSelection(),
     val localOcr: LocalOcrSettings = LocalOcrSettings(),
+    val kirari: KirariSettings = KirariSettings(),
     val lastResult: ProcessingResult? = null,
     val history: List<ProcessingResult> = emptyList()
 )
@@ -187,6 +211,17 @@ enum class AutomationActionType {
 
 fun defaultProvider(): ModelProviderConfig = ModelProviderConfig()
 
+fun kirariProvider(settings: KirariSettings = KirariSettings()): ModelProviderConfig = ModelProviderConfig(
+    id = KIRARI_PROVIDER_ID,
+    name = "The Kirari Network",
+    kind = ProviderKind.KIRARI_NETWORK,
+    baseUrl = settings.serverUrl.trim(),
+    apiKey = settings.auth.accessToken,
+    chatModel = "",
+    visionModel = "",
+    ocrModel = ""
+)
+
 fun defaultAssistants(): List<AssistantPreset> = listOf(defaultAssistant())
 
 fun defaultAssistant(): AssistantPreset = problemSolvingAssistantPreset()
@@ -243,10 +278,19 @@ fun AppSettings.modelSelectionFor(purpose: ModelPurpose): ModelSelection = when 
     ModelPurpose.VISION -> visionModelSelection
 }
 
+fun AppSettings.availableProviders(): List<ModelProviderConfig> {
+    val custom = providers.filterNot { it.id == KIRARI_PROVIDER_ID }
+    return if (BuildConfig.SHOW_KIRARI_ENTRY) {
+        listOf(kirariProvider(kirari)) + custom
+    } else {
+        custom
+    }
+}
+
 fun AppSettings.resolveModelProvider(purpose: ModelPurpose): ModelProviderConfig? {
     val selection = modelSelectionFor(purpose)
     if (purpose == ModelPurpose.OCR && selection.isLocalOcrSelection()) return null
-    return providers.firstOrNull { it.id == selection.providerId }
+    return availableProviders().firstOrNull { it.id == selection.providerId }
 }
 
 fun AppSettings.resolveModelName(purpose: ModelPurpose): String {
@@ -259,26 +303,32 @@ fun AppSettings.resolveModelName(purpose: ModelPurpose): String {
 }
 
 fun AppSettings.normalize(): AppSettings {
+    val normalizedProviders = providers.filterNot { it.id == KIRARI_PROVIDER_ID }
     val normalizedAssistants = normalizeAssistants(
         assistants = assistants,
         selectedAssistantId = selectedAssistantId
     )
-    val fallbackProvider = providers.firstOrNull { it.id == selectedProviderId } ?: providers.firstOrNull()
+    val availableProviders = availableProviders()
+    val fallbackProvider = availableProviders.firstOrNull { it.id == selectedProviderId } ?: availableProviders.firstOrNull()
     return copy(
+        providers = normalizedProviders,
+        selectedProviderId = selectedProviderId
+            ?.takeIf { candidate -> availableProviders.any { it.id == candidate } }
+            ?: fallbackProvider?.id,
         assistants = normalizedAssistants.assistants,
         selectedAssistantId = normalizedAssistants.selectedAssistantId,
         textModelSelection = textModelSelection.normalize(
-            providers = providers,
+            providers = availableProviders,
             fallbackProvider = fallbackProvider,
             fallbackModel = fallbackProvider?.chatModel.orEmpty()
         ),
         visionModelSelection = visionModelSelection.normalize(
-            providers = providers,
+            providers = availableProviders,
             fallbackProvider = fallbackProvider,
             fallbackModel = fallbackProvider?.visionModel.orEmpty()
         ),
         ocrModelSelection = ocrModelSelection.normalize(
-            providers = providers,
+            providers = availableProviders,
             fallbackProvider = fallbackProvider,
             fallbackModel = fallbackProvider?.ocrModel?.ifBlank {
                 fallbackProvider.visionModel

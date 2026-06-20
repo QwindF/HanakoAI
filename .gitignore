@@ -10,8 +10,9 @@
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
 .DS_Store
+.vscode/
 /build
-/app/build
+**/build/
 /captures
 .externalNativeBuild
 .cxx

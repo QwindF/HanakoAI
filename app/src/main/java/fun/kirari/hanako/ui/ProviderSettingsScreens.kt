@@ -45,7 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.data.AppSettings
+import `fun`.kirari.hanako.data.KIRARI_PROVIDER_ID
 import `fun`.kirari.hanako.data.ModelProviderConfig
+import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.data.displayName
 import `fun`.kirari.hanako.ui.components.ProviderEditor
 import `fun`.kirari.hanako.ui.components.SectionCard
@@ -81,7 +83,7 @@ fun ProviderSettingsScreen(
                 }
             }
         }
-        items(settings.providers, key = { it.id }) { provider ->
+        items(settings.availableProviders(), key = { it.id }) { provider ->
             ProviderListItem(
                 provider = provider,
                 onOpenProvider = onOpenProvider,
@@ -91,7 +93,7 @@ fun ProviderSettingsScreen(
         item { Spacer(modifier = Modifier.height(80.dp)) }
     }
 
-    val deleteTarget = settings.providers.firstOrNull { it.id == deleteTargetId }
+    val deleteTarget = settings.availableProviders().firstOrNull { it.id == deleteTargetId }
     if (deleteTarget != null) {
         DeleteConfirmDialog(
             title = "删除提供方",
@@ -129,11 +131,19 @@ fun ProviderDetailScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     ProviderEditor(
                         provider = provider,
+                        readOnly = provider.id == KIRARI_PROVIDER_ID,
                         onChange = onUpdateProvider,
                         onImportResult = { message ->
                             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                         }
                     )
+                    if (provider.id == KIRARI_PROVIDER_ID) {
+                        Text(
+                            text = "The Kirari Network 为固定提供方。服务器地址和登录状态请在“更多”中配置。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     OutlinedButton(
                         onClick = onViewModels,
                         modifier = Modifier.fillMaxWidth()
@@ -161,7 +171,11 @@ private fun ProviderListItem(
     Surface(
         modifier = Modifier.combinedClickable(
             onClick = { onOpenProvider(provider.id) },
-            onLongClick = { onRequestDelete(provider.id) }
+            onLongClick = {
+                if (provider.id != KIRARI_PROVIDER_ID) {
+                    onRequestDelete(provider.id)
+                }
+            }
         ),
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow

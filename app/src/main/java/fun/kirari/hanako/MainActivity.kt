@@ -21,10 +21,17 @@ class MainActivity : ComponentActivity() {
             Log.e("HanakoAI", "Uncaught exception in thread ${thread.name}", throwable)
             defaultHandler?.uncaughtException(thread, throwable)
         }
+        intent?.data?.let(viewModel::handleKirariRedirect)
         setContent {
             HanakoTheme {
                 HanakoApp(viewModel)
             }
         }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.data?.let(viewModel::handleKirariRedirect)
     }
 }

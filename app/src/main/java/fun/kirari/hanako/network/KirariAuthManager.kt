@@ -1,0 +1,173 @@
+package `fun`.kirari.hanako.network
+
+import android.net.Uri
+import `fun`.kirari.auth.core.AuthorizationSession
+import `fun`.kirari.auth.core.OidcClientConfig
+import `fun`.kirari.auth.core.OidcPkceClient
+import `fun`.kirari.auth.core.OidcTokenResponse
+import `fun`.kirari.hanako.BuildConfig
+import `fun`.kirari.hanako.data.AppSettings
+import `fun`.kirari.hanako.data.KirariAuthState
+import `fun`.kirari.hanako.data.KirariSettings
+import `fun`.kirari.hanako.data.SettingsStore
+import `fun`.kirari.hanako.debug.AppDebugLogStore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+
+internal data class KirariAuthorizationRequest(
+    val authorizationUrl: String,
+    val redirectUri: String
+)
+
+internal data class KirariAuthHandleResult(
+    val success: Boolean,
+    val message: String
+)
+
+internal class KirariAuthManager(
+    private val settingsStore: SettingsStore,
+    private val clientProvider: NetworkClientProvider,
+    private val oidcClient: OidcPkceClient = OidcPkceClient()
+) {
+    private val tag = "KirariAuth"
+    private val refreshMutex = Mutex()
+    @Volatile
+    private var pendingSession: AuthorizationSession? = null
+
+    suspend fun buildAuthorizationRequest(
+        serverUrl: String,
+        trustAllHttpsCertificates: Boolean
+    ): KirariAuthorizationRequest = withContext(Dispatchers.IO) {
+        val clientId = BuildConfig.KIRARI_OIDC_CLIENT_ID.trim()
+        require(clientId.isNotBlank()) { "当前构建未注入 Kirari OIDC Client ID" }
+        val config = oidcConfig(serverUrl)
+        val request = oidcClient.buildAuthorizationRequest(
+            httpClient = clientProvider.client(trustAllHttpsCertificates),
+            config = config.copy(clientId = clientId)
+        )
+        pendingSession = AuthorizationSession(
+            state = request.state,
+            codeVerifier = request.codeVerifier,
+            redirectUri = request.redirectUri
+        )
+        AppDebugLogStore.i(tag, "authorization request prepared redirectUri=${request.redirectUri}")
+        KirariAuthorizationRequest(
+            authorizationUrl = request.authorizationUrl,
+            redirectUri = request.redirectUri
+        )
+    }
+
+    suspend fun handleRedirect(
+        redirectUri: Uri,
+        settings: AppSettings,
+        trustAllHttpsCertificates: Boolean
+    ): KirariAuthHandleResult = withContext(Dispatchers.IO) {
+        val session = pendingSession ?: return@withContext KirariAuthHandleResult(false, "未找到待完成的登录会话")
+        val error = redirectUri.getQueryParameter("error")
+        if (!error.isNullOrBlank()) {
+            pendingSession = null
+            val description = redirectUri.getQueryParameter("error_description").orEmpty()
+            return@withContext KirariAuthHandleResult(false, listOf(error, description).filter(String::isNotBlank).joinToString(": "))
+        }
+        val state = redirectUri.getQueryParameter("state").orEmpty()
+        if (state != session.state) {
+            pendingSession = null
+            return@withContext KirariAuthHandleResult(false, "OIDC state 校验失败")
+        }
+        val code = redirectUri.getQueryParameter("code").orEmpty()
+        if (code.isBlank()) {
+            pendingSession = null
+            return@withContext KirariAuthHandleResult(false, "OIDC 未返回 authorization code")
+        }
+        val tokenResponse = oidcClient.exchangeAuthorizationCode(
+            httpClient = clientProvider.client(trustAllHttpsCertificates),
+            config = oidcConfig(settings.kirari.serverUrl),
+            session = session,
+            code = code
+        )
+        pendingSession = null
+        persistAuth(tokenResponse, fallbackRefreshToken = settings.kirari.auth.refreshToken)
+        AppDebugLogStore.i(tag, "authorization code exchanged")
+        KirariAuthHandleResult(true, "Kirari 登录成功")
+    }
+
+    suspend fun ensureValidAccessToken(
+        settings: AppSettings,
+        trustAllHttpsCertificates: Boolean
+    ): String {
+        val auth = settings.kirari.auth
+        if (auth.accessToken.isNotBlank() && auth.accessTokenExpiresAtMillis > System.currentTimeMillis() + 30_000L) {
+            return auth.accessToken
+        }
+        if (auth.refreshToken.isBlank()) {
+            return ""
+        }
+        return refreshMutex.withLock {
+            val latest = settingsStore.read().kirari.auth
+            if (latest.accessToken.isNotBlank() && latest.accessTokenExpiresAtMillis > System.currentTimeMillis() + 30_000L) {
+                return@withLock latest.accessToken
+            }
+            val refreshed = oidcClient.refreshAccessToken(
+                httpClient = clientProvider.client(trustAllHttpsCertificates),
+                config = oidcConfig(settings.kirari.serverUrl),
+                refreshToken = latest.refreshToken
+            )
+            persistAuth(refreshed, fallbackRefreshToken = latest.refreshToken)
+            AppDebugLogStore.i(tag, "access token refreshed")
+            refreshed.accessToken
+        }
+    }
+
+    suspend fun clearAuth() {
+        pendingSession = null
+        settingsStore.update { current ->
+            current.copy(kirari = current.kirari.copy(auth = KirariAuthState()))
+        }
+    }
+
+    fun matchesRedirect(uri: Uri?): Boolean {
+        if (uri == null) return false
+        val expected = redirectUri()
+        return uri.scheme == Uri.parse(expected).scheme &&
+            uri.path == Uri.parse(expected).path
+    }
+
+    private fun oidcConfig(serverUrl: String): OidcClientConfig {
+        val trimmed = serverUrl.trim().trimEnd('/')
+        require(trimmed.isNotBlank()) { "请先填写 Kirari 服务器地址" }
+        return OidcClientConfig(
+            issuerBaseUrl = trimmed,
+            clientId = BuildConfig.KIRARI_OIDC_CLIENT_ID.trim(),
+            redirectUri = redirectUri(),
+            scope = "openid profile email offline_access llm:read llm:stream"
+        )
+    }
+
+    private suspend fun persistAuth(
+        tokenResponse: OidcTokenResponse,
+        fallbackRefreshToken: String
+    ) {
+        val auth = tokenResponse.toAuthState(fallbackRefreshToken)
+        settingsStore.update { current ->
+            current.copy(
+                kirari = current.kirari.copy(auth = auth)
+            )
+        }
+    }
+
+    private fun OidcTokenResponse.toAuthState(fallbackRefreshToken: String): KirariAuthState {
+        val expiresAt = System.currentTimeMillis() + (expiresIn.coerceAtLeast(1L) * 1000L)
+        return KirariAuthState(
+            accessToken = accessToken,
+            refreshToken = refreshToken.ifBlank { fallbackRefreshToken },
+            idToken = idToken,
+            tokenType = tokenType.ifBlank { "Bearer" },
+            scope = scope,
+            accessTokenExpiresAtMillis = expiresAt
+        )
+    }
+
+    private fun redirectUri(): String = "${BuildConfig.APPLICATION_ID}:/oauth2redirect/kirari"
+}

@@ -74,6 +74,7 @@ import `fun`.kirari.hanako.data.previewPrompt
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.ModelPurpose
 import `fun`.kirari.hanako.data.ModelSelection
+import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.displayName
 import `fun`.kirari.hanako.data.resolveModelName
@@ -324,7 +325,7 @@ internal fun CropOverlaySheet(
     }
     providerPickerTitle?.let { title ->
         ProviderPickerOverlay(
-            providers = uiState.settings.providers,
+            providers = uiState.settings.availableProviders(),
             closing = providerPickerClosing,
             title = title,
             onDismiss = { providerPickerClosing = true },

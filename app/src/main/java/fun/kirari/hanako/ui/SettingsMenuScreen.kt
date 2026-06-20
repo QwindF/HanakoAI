@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import `fun`.kirari.hanako.BuildConfig
 
 @Composable
 fun SettingsMenuScreen(
@@ -74,12 +75,14 @@ fun SettingsMenuScreen(
             )
         }
         item {
-            SettingsEntryCard(
-                title = "调试日志",
-                subtitle = "查看运行日志，便于排查模型、截图与悬浮窗问题",
-                icon = Icons.Default.BugReport,
-                onClick = onNavigateDebugLogs
-            )
+            if (BuildConfig.SHOW_DEBUG_LOGS) {
+                SettingsEntryCard(
+                    title = "调试日志",
+                    subtitle = "查看运行日志，便于排查模型、截图与悬浮窗问题",
+                    icon = Icons.Default.BugReport,
+                    onClick = onNavigateDebugLogs
+                )
+            }
         }
     }
 }

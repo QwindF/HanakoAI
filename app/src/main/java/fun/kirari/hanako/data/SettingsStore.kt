@@ -7,6 +7,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import `fun`.kirari.hanako.debug.AppDebugLogStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapConcat
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -58,6 +59,8 @@ class SettingsStore(private val context: Context) {
             preferences[SETTINGS_KEY] = json.encodeToString(AppSettings.serializer(), updated)
         }
     }
+
+    suspend fun read(): AppSettings = settings.first()
 
     private suspend fun persistMigrated(settings: AppSettings) {
         context.dataStore.edit { preferences ->

@@ -1,5 +1,6 @@
 package `fun`.kirari.hanako.ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,8 +20,10 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
@@ -37,7 +40,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import `fun`.kirari.hanako.BuildConfig
 import `fun`.kirari.hanako.data.AutomationSettings
+import `fun`.kirari.hanako.data.KirariSettings
 import `fun`.kirari.hanako.data.ScreenCaptureMethod
 import `fun`.kirari.hanako.data.description
 import `fun`.kirari.hanako.data.displayName
@@ -47,15 +52,23 @@ fun MoreSettingsScreen(
     automationSettings: AutomationSettings,
     selectedMethod: ScreenCaptureMethod,
     trustAllHttpsCertificates: Boolean,
+    kirariSettings: KirariSettings,
+    hasKirariClientId: Boolean,
     onToggleCompletionNotification: (Boolean) -> Unit,
     onToggleStaticMode: (Boolean) -> Unit,
     onNavigateStaticVibrationSettings: () -> Unit,
     onUpdateTimeoutSeconds: (Int) -> Unit,
     onSelectMethod: (ScreenCaptureMethod) -> Unit,
-    onToggleTrustAllHttpsCertificates: (Boolean) -> Unit
+    onToggleTrustAllHttpsCertificates: (Boolean) -> Unit,
+    onUpdateKirariServerUrl: (String) -> Unit,
+    onLoginKirari: () -> Unit,
+    onLogoutKirari: () -> Unit
 ) {
     var timeoutInput by remember(automationSettings.autoModeTimeoutSeconds) {
         mutableStateOf(automationSettings.autoModeTimeoutSeconds.toString())
+    }
+    var kirariServerInput by remember(kirariSettings.serverUrl) {
+        mutableStateOf(kirariSettings.serverUrl)
     }
 
     LazyColumn(
@@ -104,6 +117,27 @@ fun MoreSettingsScreen(
                 )
             }
         }
+        item {
+            if (BuildConfig.SHOW_KIRARI_ENTRY) {
+                MoreSettingCard(
+                    icon = Icons.Default.Cloud,
+                    title = "The Kirari Network",
+                    subtitle = "标准 OIDC 登录与 Kirari LLM 网关。"
+                ) {
+                    KirariSettingsCard(
+                        kirariSettings = kirariSettings,
+                        hasKirariClientId = hasKirariClientId,
+                        serverUrlInput = kirariServerInput,
+                        onServerUrlInputChange = {
+                            kirariServerInput = it
+                            onUpdateKirariServerUrl(it)
+                        },
+                        onLogin = onLoginKirari,
+                        onLogout = onLogoutKirari
+                    )
+                }
+            }
+        }
         item { Spacer(modifier = Modifier.height(80.dp)) }
     }
 }
@@ -143,6 +177,79 @@ private fun AutoModeSettingsCard(
                 digits.toIntOrNull()?.takeIf { it > 0 }?.let(onUpdateTimeoutSeconds)
             }
         )
+    }
+}
+
+@Composable
+private fun KirariSettingsCard(
+    kirariSettings: KirariSettings,
+    hasKirariClientId: Boolean,
+    serverUrlInput: String,
+    onServerUrlInputChange: (String) -> Unit,
+    onLogin: () -> Unit,
+    onLogout: () -> Unit
+) {
+    val expiresAt = kirariSettings.auth.accessTokenExpiresAtMillis
+    val loggedIn = kirariSettings.auth.accessToken.isNotBlank() &&
+        expiresAt > System.currentTimeMillis()
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            "模型提供方固定为 The Kirari Network。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (BuildConfig.KIRARI_SERVER_URL_EDITABLE) {
+            OutlinedTextField(
+                value = serverUrlInput,
+                onValueChange = onServerUrlInputChange,
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                label = { Text("Kirari 服务器地址") }
+            )
+        } else {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow
+            ) {
+                Text(
+                    text = kirariSettings.serverUrl.ifBlank { "未配置" },
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            }
+        }
+        Text(
+            text = when {
+                !hasKirariClientId -> "当前构建未注入 OIDC Client ID，无法登录。"
+                loggedIn -> "已登录，Token 有效。"
+                kirariSettings.auth.refreshToken.isNotBlank() -> "访问令牌已过期，请重新登录或等待自动刷新。"
+                else -> "未登录。"
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            OutlinedButton(
+                onClick = onLogin,
+                enabled = hasKirariClientId,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (loggedIn) "重新登录" else "登录")
+            }
+            OutlinedButton(
+                onClick = onLogout,
+                enabled = kirariSettings.auth.accessToken.isNotBlank() || kirariSettings.auth.refreshToken.isNotBlank(),
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("退出登录")
+            }
+        }
     }
 }
 

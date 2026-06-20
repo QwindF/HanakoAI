@@ -3,6 +3,7 @@ package `fun`.kirari.hanako.ui
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -48,10 +49,11 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import android.widget.Toast
+import `fun`.kirari.hanako.HanakoApplication
 import `fun`.kirari.hanako.capture.ScreenCaptureManager
 import `fun`.kirari.hanako.capture.ScreenCaptureStartResult
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.overlay.OverlayLaunchMode
 import `fun`.kirari.hanako.overlay.OverlayRuntimeState
 import `fun`.kirari.hanako.overlay.OverlayService
@@ -61,16 +63,24 @@ import `fun`.kirari.hanako.overlay.OverlayService
 fun HanakoApp(viewModel: MainViewModel) {
     val settings by viewModel.settings.collectAsState()
     val debugEntries by AppDebugLogStore.entries.collectAsState()
+    val kirariAuthMessage by viewModel.kirariAuthMessage.collectAsState()
     val context = LocalContext.current
     val overlayEnabled by OverlayRuntimeState.running.collectAsState()
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     val lifecycleOwner = LocalLifecycleOwner.current
     var modelSelectionDialogState by remember { mutableStateOf(ModelSelectionDialogState()) }
+    val providerModelsApi = remember { HanakoApplication.instance.container.providerModelsApi }
 
     var currentScreen by rememberSaveable { mutableStateOf(Screen.Hanako) }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+
+    LaunchedEffect(kirariAuthMessage) {
+        val message = kirariAuthMessage ?: return@LaunchedEffect
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        viewModel.consumeKirariAuthMessage()
+    }
 
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
@@ -244,7 +254,7 @@ fun HanakoApp(viewModel: MainViewModel) {
                 }
                 composable("$ROUTE_SETTINGS_PROVIDER_DETAIL/{$ARG_PROVIDER_ID}") { entry ->
                     val providerId = entry.arguments?.getString(ARG_PROVIDER_ID)
-                    val provider = settings.providers.firstOrNull { it.id == providerId }
+                    val provider = settings.availableProviders().firstOrNull { it.id == providerId }
                     if (provider != null) {
                         val connectionTestState by viewModel.connectionTestState.collectAsState()
                         ProviderDetailScreen(
@@ -301,6 +311,8 @@ fun HanakoApp(viewModel: MainViewModel) {
                         automationSettings = settings.automation,
                         selectedMethod = settings.screenCaptureMethod,
                         trustAllHttpsCertificates = settings.trustAllHttpsCertificates,
+                        kirariSettings = settings.kirari,
+                        hasKirariClientId = viewModel.hasKirariClientId(),
                         onToggleCompletionNotification = { enabled ->
                             viewModel.updateAutomationSettings {
                                 it.copy(completionNotificationEnabled = enabled)
@@ -318,7 +330,18 @@ fun HanakoApp(viewModel: MainViewModel) {
                                 it.copy(autoModeTimeoutSeconds = seconds)
                             }
                         },
-                        onToggleTrustAllHttpsCertificates = viewModel::setTrustAllHttpsCertificates
+                        onToggleTrustAllHttpsCertificates = viewModel::setTrustAllHttpsCertificates,
+                        onUpdateKirariServerUrl = { serverUrl ->
+                            viewModel.updateKirariSettings { it.copy(serverUrl = serverUrl.trim()) }
+                        },
+                        onLoginKirari = {
+                            viewModel.startKirariLogin { authorizationUrl ->
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl))
+                                )
+                            }
+                        },
+                        onLogoutKirari = viewModel::logoutKirari
                     )
                 }
                 composable(ROUTE_SETTINGS_STATIC_VIBRATION) {
@@ -347,6 +370,7 @@ fun HanakoApp(viewModel: MainViewModel) {
         onUpdateModelSelection = viewModel::updateModelSelection,
         onUpdateModelSelectionWithFavorite = viewModel::updateModelSelectionWithFavorite,
         onToggleFavoriteModel = viewModel::toggleFavoriteModel,
-        onSyncLocalOcrInstallation = viewModel::syncLocalOcrInstallation
+        onSyncLocalOcrInstallation = viewModel::syncLocalOcrInstallation,
+        providerModelsApi = providerModelsApi
     )
 }

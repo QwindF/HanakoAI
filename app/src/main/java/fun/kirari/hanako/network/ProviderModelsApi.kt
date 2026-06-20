@@ -2,6 +2,7 @@ package `fun`.kirari.hanako.network
 
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.ProviderKind
+import `fun`.kirari.hanako.data.SettingsStore
 import `fun`.kirari.hanako.data.modelsRequestUrl
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -23,17 +24,22 @@ data class ConnectionTestResult(
     val errorMessage: String = ""
 )
 
-class ProviderModelsApi(
+internal class ProviderModelsApi(
     private val clientProvider: NetworkClientProvider = NetworkClientProvider(),
+    private val kirariAuthManager: KirariAuthManager? = null,
+    private val settingsStore: SettingsStore? = null,
     private val json: Json = Json { ignoreUnknownKeys = true }
 ) {
     suspend fun listModels(
         provider: ModelProviderConfig,
         trustAllHttpsCertificates: Boolean = false
     ): List<RemoteModelOption> = withContext(Dispatchers.IO) {
+        val authHeader = authorizationHeader(provider, trustAllHttpsCertificates)
         val request = Request.Builder()
             .url(provider.modelsRequestUrl())
-            .addHeader("Authorization", "Bearer ${provider.apiKey}")
+            .apply {
+                authHeader?.let { addHeader("Authorization", it) }
+            }
             .get()
             .build()
 
@@ -45,6 +51,7 @@ class ProviderModelsApi(
             val body = response.body?.string().orEmpty()
             return@withContext when (provider.kind) {
                 ProviderKind.GOOGLE -> parseGoogleModels(body)
+                ProviderKind.KIRARI_NETWORK -> parseKirariModels(body)
                 ProviderKind.OPENAI_COMPATIBLE,
                 ProviderKind.OPENAI_RESPONSES,
                 ProviderKind.ANTHROPIC -> parseOpenAiLikeModels(body)
@@ -71,9 +78,12 @@ class ProviderModelsApi(
     ): ConnectionTestResult = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
         try {
+            val authHeader = authorizationHeader(provider, trustAllHttpsCertificates)
             val request = Request.Builder()
                 .url(provider.modelsRequestUrl())
-                .addHeader("Authorization", "Bearer ${provider.apiKey}")
+                .apply {
+                    authHeader?.let { addHeader("Authorization", it) }
+                }
                 .get()
                 .build()
 
@@ -122,6 +132,39 @@ class ProviderModelsApi(
             val id = modelObject["name"]?.jsonPrimitive?.contentOrNull?.substringAfterLast('/') ?: return@mapNotNull null
             val displayName = modelObject["displayName"]?.jsonPrimitive?.contentOrNull ?: id
             RemoteModelOption(id = id, displayName = displayName)
+        }
+    }
+
+    private fun parseKirariModels(body: String): List<RemoteModelOption> {
+        val root = json.parseToJsonElement(body).jsonObject
+        val models = root["models"]?.jsonArray ?: return emptyList()
+        val defaultModel = root["default_model"]?.jsonPrimitive?.contentOrNull
+        return models.mapNotNull { element ->
+            val id = element.jsonPrimitive.contentOrNull ?: return@mapNotNull null
+            val display = if (id == defaultModel) "$id (default)" else id
+            RemoteModelOption(id = id, displayName = display)
+        }
+    }
+
+    private suspend fun authorizationHeader(
+        provider: ModelProviderConfig,
+        trustAllHttpsCertificates: Boolean
+    ): String? {
+        return when (provider.kind) {
+            ProviderKind.GOOGLE -> null
+            ProviderKind.ANTHROPIC -> null
+            ProviderKind.KIRARI_NETWORK -> {
+                val manager = requireNotNull(kirariAuthManager) { "KirariAuthManager is required for Kirari provider" }
+                val store = requireNotNull(settingsStore) { "SettingsStore is required for Kirari provider" }
+                val settings = store.read()
+                val token = manager.ensureValidAccessToken(settings, trustAllHttpsCertificates)
+                require(token.isNotBlank()) { "请先登录 The Kirari Network" }
+                "Bearer $token"
+            }
+            else -> {
+                require(provider.apiKey.isNotBlank()) { "请先填写 API Key" }
+                "Bearer ${provider.apiKey}"
+            }
         }
     }
 }

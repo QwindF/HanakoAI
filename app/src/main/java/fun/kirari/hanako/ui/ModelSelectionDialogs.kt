@@ -29,9 +29,11 @@ import `fun`.kirari.hanako.data.LOCAL_OCR_MODEL_ID
 import `fun`.kirari.hanako.data.LOCAL_OCR_PROVIDER_ID
 import `fun`.kirari.hanako.data.ModelPurpose
 import `fun`.kirari.hanako.data.ModelSelection
+import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.data.displayName
 import `fun`.kirari.hanako.debug.AppDebugLogEntry
 import `fun`.kirari.hanako.formatDebugTime
+import `fun`.kirari.hanako.network.ProviderModelsApi
 import `fun`.kirari.hanako.ui.components.CustomModelDialog
 import `fun`.kirari.hanako.ui.components.ModelPickerDialog
 
@@ -45,7 +47,8 @@ internal fun ModelSelectionDialogs(
     onUpdateModelSelection: (ModelPurpose, ModelSelection) -> Unit,
     onUpdateModelSelectionWithFavorite: (ModelPurpose, ModelSelection, Boolean) -> Unit,
     onToggleFavoriteModel: (String, String) -> Unit,
-    onSyncLocalOcrInstallation: () -> Unit
+    onSyncLocalOcrInstallation: () -> Unit,
+    providerModelsApi: ProviderModelsApi
 ) {
     ProviderSelectionDialogHost(
         state = state,
@@ -58,7 +61,8 @@ internal fun ModelSelectionDialogs(
         settings = settings,
         onStateChange = onStateChange,
         onUpdateModelSelectionWithFavorite = onUpdateModelSelectionWithFavorite,
-        onToggleFavoriteModel = onToggleFavoriteModel
+        onToggleFavoriteModel = onToggleFavoriteModel,
+        providerModelsApi = providerModelsApi
     )
     LocalOcrDialogHost(
         state = state,
@@ -96,7 +100,7 @@ private fun ProviderSelectionDialogHost(
 ) {
     val target = state.providerPickerTarget ?: return
     ProviderSelectDialog(
-        providers = settings.providers,
+        providers = settings.availableProviders(),
         includeLocalOcr = target == ModelPurpose.OCR,
         localOcrInstalled = settings.localOcr.installed,
         title = "选择${target.displayName}提供方",
@@ -137,9 +141,10 @@ private fun ModelPickerDialogHost(
     settings: AppSettings,
     onStateChange: (ModelSelectionDialogState) -> Unit,
     onUpdateModelSelectionWithFavorite: (ModelPurpose, ModelSelection, Boolean) -> Unit,
-    onToggleFavoriteModel: (String, String) -> Unit
+    onToggleFavoriteModel: (String, String) -> Unit,
+    providerModelsApi: ProviderModelsApi
 ) {
-    val pickerProvider = settings.providers.firstOrNull { it.id == state.modelPickerProviderId }
+    val pickerProvider = settings.availableProviders().firstOrNull { it.id == state.modelPickerProviderId }
     val pickerTarget = state.modelPickerTarget
     if (pickerProvider != null && pickerTarget != null) {
         ModelPickerDialog(
@@ -168,6 +173,8 @@ private fun ModelPickerDialogHost(
                 )
             },
             trustAllHttpsCertificates = settings.trustAllHttpsCertificates
+            ,
+            api = providerModelsApi
         )
     }
 
@@ -203,7 +210,7 @@ private fun ModelPickerDialogHost(
         )
     }
 
-    val previewProvider = settings.providers.firstOrNull { it.id == state.providerModelsPreviewId }
+    val previewProvider = settings.availableProviders().firstOrNull { it.id == state.providerModelsPreviewId }
     if (previewProvider != null) {
         ModelPickerDialog(
             provider = previewProvider,
@@ -214,7 +221,8 @@ private fun ModelPickerDialogHost(
                 onToggleFavoriteModel(previewProvider.id, model)
             },
             onCustomModelRequest = { },
-            trustAllHttpsCertificates = settings.trustAllHttpsCertificates
+            trustAllHttpsCertificates = settings.trustAllHttpsCertificates,
+            api = providerModelsApi
         )
     }
 }

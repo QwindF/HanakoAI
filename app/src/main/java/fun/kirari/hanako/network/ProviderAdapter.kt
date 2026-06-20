@@ -10,7 +10,8 @@ internal data class StreamRequest(
     val userPrompt: String,
     val imagesBase64: List<String> = emptyList(),
     val tools: List<ToolDef>? = null,
-    val firstDeltaTimeoutMillis: Long
+    val firstDeltaTimeoutMillis: Long,
+    val trustAllHttpsCertificates: Boolean
 ) {
     val hasImages: Boolean get() = imagesBase64.isNotEmpty()
     

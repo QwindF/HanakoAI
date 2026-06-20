@@ -46,7 +46,7 @@ data class ModelPickerEntry(
 )
 
 @Composable
-fun rememberModelPickerState(
+internal fun rememberModelPickerState(
     provider: ModelProviderConfig,
     trustAllHttpsCertificates: Boolean = false,
     api: ProviderModelsApi = ProviderModelsApi()
@@ -114,7 +114,7 @@ fun rememberModelPickerState(
     }
 }
 
-class ModelPickerState(
+internal class ModelPickerState(
     val entries: List<ModelPickerEntry>,
     val hasNetworkResponse: Boolean,
     private val cancelPendingRequest: () -> Unit,
@@ -137,7 +137,7 @@ class ModelPickerState(
 }
 
 @Composable
-fun ModelPickerDialog(
+internal fun ModelPickerDialog(
     provider: ModelProviderConfig,
     title: String,
     onDismiss: () -> Unit,
@@ -222,7 +222,7 @@ fun ModelPickerDialog(
 }
 
 @Composable
-fun ModelPickerListContent(
+internal fun ModelPickerListContent(
     models: List<ModelPickerEntry>,
     hasNetworkResponse: Boolean,
     onPick: (String, Boolean) -> Unit,
@@ -265,7 +265,7 @@ fun ModelPickerListContent(
 }
 
 @Composable
-fun ModelPickerSurfaceItem(
+internal fun ModelPickerSurfaceItem(
     model: ModelPickerEntry,
     onPick: () -> Unit,
     onLongPress: () -> Unit
