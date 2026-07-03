@@ -153,6 +153,7 @@ internal class OverlayViewModel(
         val (baseResult, historyId, screenshotPaths) = pipeline.createBaseResult(models, bitmaps, "请求已开始")
 
         viewModelScope.launch {
+            val progressEvents = mutableListOf<ProcessingEvent>()
             _uiState.update {
                 it.copy(
                     selectedBitmap = firstBitmap,
@@ -179,9 +180,28 @@ internal class OverlayViewModel(
                                 },
                                 onAnswerDelta = { delta ->
                                     _uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
+                                },
+                                onSearchEvent = { event ->
+                                    progressEvents.add(event)
+                                    val progressResult = baseResult.copy(
+                                        extractedText = _uiState.value.liveOcrText,
+                                        answer = _uiState.value.liveAnswerText,
+                                        events = baseResult.events + progressEvents
+                                    )
+                                    upsertHistory(progressResult)
+                                    _uiState.update { current -> current.copy(result = progressResult) }
                                 }
                             )
-                            pipeline.buildChatResult(baseResult, models, ocrText, answer, historyId, screenshotPaths, searchOutcome)
+                            pipeline.buildChatResult(
+                                baseResult,
+                                models,
+                                ocrText,
+                                answer,
+                                historyId,
+                                screenshotPaths,
+                                searchOutcome,
+                                progressEvents
+                            )
                         }
 
                         ProcessingRoute.MULTIMODAL_DIRECT -> {

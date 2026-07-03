@@ -296,7 +296,8 @@ internal class ProcessingPipeline(
         models: ResolvedModels,
         bitmaps: List<Bitmap>,
         onOcrDelta: (String) -> Unit,
-        onAnswerDelta: (String) -> Unit
+        onAnswerDelta: (String) -> Unit,
+        onSearchEvent: suspend (ProcessingEvent) -> Unit = {}
     ): Triple<String, String, SearchOutcome?> {
         AppDebugLogStore.i(tag, "streamOcrThenChat ocrModel=${models.ocrModel} textModel=${models.textModel} imageCount=${bitmaps.size}")
         val ocrTexts = mutableListOf<String>()
@@ -320,7 +321,7 @@ internal class ProcessingPipeline(
         val combinedOcrText = ocrTexts.joinToString("\n\n---\n\n")
         onOcrDelta(combinedOcrText)
 
-        val searchOutcome = maybeSearch(models, combinedOcrText, isAutomation = false)
+        val searchOutcome = maybeSearch(models, combinedOcrText, isAutomation = false, onSearchEvent = onSearchEvent)
         val userPrompt = buildEnhancedUserPrompt(
             basePrompt = "以下是 OCR 结果，请完成任务：\n$combinedOcrText",
             searchOutcome = searchOutcome
@@ -363,7 +364,8 @@ internal class ProcessingPipeline(
         models: ResolvedModels,
         bitmaps: List<Bitmap>,
         onOcrDelta: (String) -> Unit,
-        onThoughtDelta: (String) -> Unit
+        onThoughtDelta: (String) -> Unit,
+        onSearchEvent: suspend (ProcessingEvent) -> Unit = {}
     ): Triple<String, AutomationResult, SearchOutcome?> {
         AppDebugLogStore.i(tag, "streamOcrThenAutomation ocrModel=${models.ocrModel} textModel=${models.textModel} imageCount=${bitmaps.size}")
         val ocrTexts = mutableListOf<String>()
@@ -386,7 +388,7 @@ internal class ProcessingPipeline(
         }
         val combinedOcrText = ocrTexts.joinToString("\n\n---\n\n")
         onOcrDelta(combinedOcrText)
-        val searchOutcome = maybeSearch(models, combinedOcrText, isAutomation = true)
+        val searchOutcome = maybeSearch(models, combinedOcrText, isAutomation = true, onSearchEvent = onSearchEvent)
         val userPrompt = buildEnhancedUserPrompt(
             basePrompt = "以下是 OCR 结果，请先输出思考过程，再通过一次工具调用给出自动模式动作：\n$combinedOcrText",
             searchOutcome = searchOutcome
@@ -434,7 +436,8 @@ internal class ProcessingPipeline(
     private suspend fun maybeSearch(
         models: ResolvedModels,
         questionText: String,
-        isAutomation: Boolean
+        isAutomation: Boolean,
+        onSearchEvent: suspend (ProcessingEvent) -> Unit
     ): SearchOutcome? {
         val orchestrator = searchOrchestrator ?: return null
         if (!models.webSearchSettings.enabled) return null
@@ -454,7 +457,15 @@ internal class ProcessingPipeline(
             skipReason = SearchSkipReason.LLM_NO_TOOL_CALL
         )
         val query = toolCall.arguments["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        return orchestrator.execute(
+        if (query.isNotBlank()) {
+            onSearchEvent(
+                ProcessingEvent(
+                    title = "正在联网搜索",
+                    detail = "关键词：$query"
+                )
+            )
+        }
+        val outcome = orchestrator.execute(
             SearchContext(
                 query = query,
                 settings = models.webSearchSettings,
@@ -462,6 +473,8 @@ internal class ProcessingPipeline(
                 isAutomation = isAutomation
             )
         )
+        searchEvent(outcome)?.let { onSearchEvent(it) }
+        return outcome
     }
 
     /**
@@ -502,13 +515,17 @@ internal class ProcessingPipeline(
         answer: String,
         historyId: String,
         screenshotPaths: List<String>,
-        searchOutcome: `fun`.kirari.hanako.network.search.SearchOutcome? = null
+        searchOutcome: `fun`.kirari.hanako.network.search.SearchOutcome? = null,
+        progressEvents: List<ProcessingEvent> = emptyList()
     ): ProcessingResult {
         val events = base.events.toMutableList()
         if (models.route == ProcessingRoute.OCR_THEN_LLM) {
             events.add(ProcessingEvent(title = "OCR 完成", detail = "已提取 ${ocrText.length} 个字符"))
         }
-        searchEvent(searchOutcome)?.let { events.add(it) }
+        events.addAll(progressEvents)
+        if (progressEvents.none { it.title.startsWith("联网搜索") }) {
+            searchEvent(searchOutcome)?.let { events.add(it) }
+        }
         events.add(ProcessingEvent(title = "答案完成", detail = "已生成 ${answer.length} 个字符"))
         return ProcessingResult(
             id = historyId,
@@ -536,13 +553,17 @@ internal class ProcessingPipeline(
         automationResult: AutomationResult,
         historyId: String,
         screenshotPaths: List<String>,
-        searchOutcome: `fun`.kirari.hanako.network.search.SearchOutcome? = null
+        searchOutcome: `fun`.kirari.hanako.network.search.SearchOutcome? = null,
+        progressEvents: List<ProcessingEvent> = emptyList()
     ): Pair<AutomationActionRecord, ProcessingResult> {
         val events = base.events.toMutableList()
         if (models.route == ProcessingRoute.OCR_THEN_LLM) {
             events.add(ProcessingEvent(title = "OCR 完成", detail = "已提取 ${ocrText.length} 个字符"))
         }
-        searchEvent(searchOutcome)?.let { events.add(it) }
+        events.addAll(progressEvents)
+        if (progressEvents.none { it.title.startsWith("联网搜索") }) {
+            searchEvent(searchOutcome)?.let { events.add(it) }
+        }
         events.add(
             ProcessingEvent(
                 title = "工具动作完成",

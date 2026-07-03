@@ -124,6 +124,7 @@ internal class AutoProcessingController(
             return
         }
         val (baseResult, historyId, screenshotPaths) = pipeline.createBaseResult(models, bitmaps, "自动流程已开始")
+        val progressEvents = mutableListOf<`fun`.kirari.hanako.data.ProcessingEvent>()
         upsertHistory(baseResult)
 
         runCatching<Pair<AutomationActionRecord, ProcessingResult>> {
@@ -139,9 +140,28 @@ internal class AutoProcessingController(
                             },
                             onThoughtDelta = { delta ->
                                 uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
+                            },
+                            onSearchEvent = { event ->
+                                progressEvents.add(event)
+                                val progressResult = baseResult.copy(
+                                    extractedText = uiState.value.liveOcrText,
+                                    automationThought = uiState.value.liveAnswerText,
+                                    events = baseResult.events + progressEvents
+                                )
+                                upsertHistory(progressResult)
+                                uiState.update { current -> current.copy(result = progressResult) }
                             }
                         )
-                        pipeline.buildAutomationResult(baseResult, models, ocrText, automationResult, historyId, screenshotPaths, searchOutcome)
+                        pipeline.buildAutomationResult(
+                            baseResult,
+                            models,
+                            ocrText,
+                            automationResult,
+                            historyId,
+                            screenshotPaths,
+                            searchOutcome,
+                            progressEvents
+                        )
                     }
                     ProcessingRoute.MULTIMODAL_DIRECT -> {
                         pipeline.validateVisionModels(models)

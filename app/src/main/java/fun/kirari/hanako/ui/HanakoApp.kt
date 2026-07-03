@@ -230,6 +230,7 @@ fun HanakoApp(viewModel: MainViewModel) {
                             SettingsMenuScreen(
                                 onNavigateProvider = { navController.navigate(ROUTE_SETTINGS_PROVIDER) },
                                 onNavigateModel = { navController.navigate(ROUTE_SETTINGS_MODEL) },
+                                onNavigateWebSearch = { navController.navigate(ROUTE_SETTINGS_WEB_SEARCH) },
                                 onNavigateAssistant = { navController.navigate(ROUTE_SETTINGS_ASSISTANT) },
                                 onNavigateMore = { navController.navigate(ROUTE_SETTINGS_MORE) },
                                 onNavigateDebugLogs = { navController.navigate(ROUTE_SETTINGS_DEBUG_LOGS) }
@@ -312,6 +313,14 @@ fun HanakoApp(viewModel: MainViewModel) {
                         }
                     )
                 }
+                composable(ROUTE_SETTINGS_WEB_SEARCH) {
+                    WebSearchSettingsScreen(
+                        webSearchSettings = settings.webSearch,
+                        onUpdateWebSearchSettings = { transform ->
+                            viewModel.updateWebSearchSettings(transform)
+                        }
+                    )
+                }
                 composable(ROUTE_SETTINGS_ASSISTANT) {
                     AssistantSettingsScreen(
                         settings = settings,
@@ -341,7 +350,6 @@ fun HanakoApp(viewModel: MainViewModel) {
                         selectedMethod = settings.screenCaptureMethod,
                         trustAllHttpsCertificates = settings.trustAllHttpsCertificates,
                         kirariSettings = settings.kirari,
-                        webSearchSettings = settings.webSearch,
                         hasKirariClientId = viewModel.hasKirariClientId(),
                         onToggleCompletionNotification = { enabled ->
                             viewModel.updateAutomationSettings {
@@ -374,10 +382,7 @@ fun HanakoApp(viewModel: MainViewModel) {
                                 )
                             }
                         },
-                        onLogoutKirari = viewModel::logoutKirari,
-                        onUpdateWebSearchSettings = { transform ->
-                            viewModel.updateWebSearchSettings(transform)
-                        }
+                        onLogoutKirari = viewModel::logoutKirari
                     )
                 }
                 composable(ROUTE_SETTINGS_STATIC_VIBRATION) {

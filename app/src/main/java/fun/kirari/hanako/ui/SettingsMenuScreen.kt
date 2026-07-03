@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SmartToy
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -33,6 +34,7 @@ import `fun`.kirari.hanako.BuildConfig
 fun SettingsMenuScreen(
     onNavigateProvider: () -> Unit,
     onNavigateModel: () -> Unit,
+    onNavigateWebSearch: () -> Unit,
     onNavigateAssistant: () -> Unit,
     onNavigateMore: () -> Unit,
     onNavigateDebugLogs: () -> Unit
@@ -56,6 +58,14 @@ fun SettingsMenuScreen(
                 subtitle = "为 OCR、文本、多模态分别指定提供方和模型",
                 icon = Icons.Default.Memory,
                 onClick = onNavigateModel
+            )
+        }
+        item {
+            SettingsEntryCard(
+                title = "联网搜索",
+                subtitle = "配置搜索工具、搜索引擎和 API Key",
+                icon = Icons.Default.Search,
+                onClick = onNavigateWebSearch
             )
         }
         item {

@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.copyToClipboardWithToast
+import `fun`.kirari.hanako.data.ProcessingEvent
 import `fun`.kirari.hanako.data.ProcessingRoute
 
 @Composable
@@ -92,6 +93,7 @@ internal fun ResultOverlaySheet(
                     if (uiState.settings.processingRoute == ProcessingRoute.OCR_THEN_LLM) {
                         OcrResultCard(uiState)
                     }
+                    ProcessingEventsCard(uiState.result?.events.orEmpty())
                     AnswerResultCard(
                         answerText = answerText,
                         working = uiState.working
@@ -148,6 +150,27 @@ private fun OcrResultCard(uiState: OverlayUiState) {
                 )
             } else {
                 Text("暂无内容")
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProcessingEventsCard(events: List<ProcessingEvent>) {
+    if (events.isEmpty()) return
+    ResultCard(title = "处理步骤") {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            events.forEach { event ->
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(event.title, style = MaterialTheme.typography.titleSmall)
+                    if (event.detail.isNotBlank()) {
+                        Text(
+                            event.detail,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
         }
     }
