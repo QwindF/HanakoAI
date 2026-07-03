@@ -123,7 +123,6 @@ internal class OpenAiResponsesAdapter(
             put("stream", true)
             put("instructions", request.systemPrompt)
             request.tools?.let {
-                put("tool_choice", "required")
                 put("tools", ToolRegistry.formatForProvider(it, request.provider.kind))
             }
             put("input", buildJsonArray {
@@ -229,7 +228,6 @@ internal class AnthropicAdapter(
             put("max_tokens", 4096)
             put("system", request.systemPrompt)
             request.tools?.let {
-                put("tool_choice", buildJsonObject { put("type", "any") })
                 put("tools", ToolRegistry.formatForProvider(it, request.provider.kind))
             }
             put("messages", buildJsonArray {
@@ -362,7 +360,7 @@ internal class GoogleAdapter(
                 })
                 put("toolConfig", buildJsonObject {
                     put("functionCallingConfig", buildJsonObject {
-                        put("mode", "ANY")
+                        put("mode", "AUTO")
                     })
                 })
             }

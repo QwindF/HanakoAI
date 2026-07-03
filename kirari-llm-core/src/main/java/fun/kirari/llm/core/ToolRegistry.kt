@@ -9,6 +9,11 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 object ToolRegistry {
+    val WEB_SEARCH_TOOL = ToolDef(
+        name = "web_search",
+        description = "搜索互联网获取最新事实、新闻、政策、赛事、产品、版本或其他时效性信息",
+        params = listOf(ToolParam("query", "string", "2到8个用于联网搜索的关键词或短语"))
+    )
 
     val AUTOMATION_TOOLS = listOf(
         ToolDef(

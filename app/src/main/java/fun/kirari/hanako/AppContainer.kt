@@ -8,6 +8,8 @@ import `fun`.kirari.hanako.network.KirariAuthManager
 import `fun`.kirari.hanako.network.NetworkClientProvider
 import `fun`.kirari.hanako.network.ProviderModelsApi
 import `fun`.kirari.hanako.network.UnifiedLLMClient
+import `fun`.kirari.hanako.network.search.SearchClientImpl
+import `fun`.kirari.hanako.network.search.SearchOrchestrator
 
 internal class AppContainer(appContext: Context) {
     val networkClientProvider = NetworkClientProvider()
@@ -28,4 +30,5 @@ internal class AppContainer(appContext: Context) {
     )
     val localOcrManager = LocalOcrManager(appContext)
     val settingsRepository = SettingsRepository(settingsStore)
+    val searchOrchestrator = SearchOrchestrator(SearchClientImpl(networkClientProvider))
 }

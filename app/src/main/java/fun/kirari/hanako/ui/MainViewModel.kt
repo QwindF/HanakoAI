@@ -81,9 +81,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val kirariAuthManager = container.kirariAuthManager
     private val settingsStore = container.settingsStore
 
-    private val _connectionTestState = MutableStateFlow(ConnectionTestState())
-    val connectionTestState: StateFlow<ConnectionTestState> = _connectionTestState.asStateFlow()
-    private var connectionTestJob: Job? = null
+    val connectionTestManager = ConnectionTestManager()
+    private val connectionTestJobs = mutableMapOf<String, Job>()
     private val _kirariAuthMessage = MutableStateFlow<String?>(null)
     val kirariAuthMessage: StateFlow<String?> = _kirariAuthMessage.asStateFlow()
     private val _providerMetaState = MutableStateFlow(ProviderMetaState())
@@ -280,6 +279,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun updateWebSearchSettings(transform: (`fun`.kirari.hanako.data.WebSearchSettings) -> `fun`.kirari.hanako.data.WebSearchSettings) {
+        viewModelScope.launch {
+            repository.update { current ->
+                current.copy(webSearch = transform(current.webSearch))
+            }
+        }
+    }
+
     fun startKirariLogin(onReady: (String) -> Unit) {
         viewModelScope.launch {
             runCatching {
@@ -376,47 +383,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun testProviderConnection(provider: ModelProviderConfig) {
-        connectionTestJob?.cancel()
-        _connectionTestState.value = ConnectionTestState(status = ConnectionTestStatus.TESTING)
-        connectionTestJob = viewModelScope.launch {
+        val providerId = provider.id
+        connectionTestJobs[providerId]?.cancel()
+        connectionTestManager.setState(providerId, ConnectionTestState(status = ConnectionTestStatus.TESTING))
+        connectionTestJobs[providerId] = viewModelScope.launch {
             val trustAll = settings.value.trustAllHttpsCertificates
             val result = runCatching {
                 providerModelsApi.testConnection(provider, trustAll)
             }
             if (!isActive) return@launch
-            _connectionTestState.value = result.fold(
-                onSuccess = { testResult ->
-                    if (testResult.success) {
-                        ConnectionTestState(
-                            status = ConnectionTestStatus.SUCCESS,
-                            latencyMs = testResult.latencyMs
-                        )
-                    } else {
+            connectionTestManager.setState(
+                providerId,
+                result.fold(
+                    onSuccess = { testResult ->
+                        if (testResult.success) {
+                            ConnectionTestState(
+                                status = ConnectionTestStatus.SUCCESS,
+                                latencyMs = testResult.latencyMs
+                            )
+                        } else {
+                            ConnectionTestState(
+                                status = ConnectionTestStatus.FAILED,
+                                latencyMs = testResult.latencyMs,
+                                errorMessage = testResult.errorMessage
+                            )
+                        }
+                    },
+                    onFailure = { error ->
+                        val message = when (error.message) {
+                            "请先登录 The Kirari Network" -> "请先登录"
+                            else -> error.message ?: "连接测试失败"
+                        }
                         ConnectionTestState(
                             status = ConnectionTestStatus.FAILED,
-                            latencyMs = testResult.latencyMs,
-                            errorMessage = testResult.errorMessage
+                            errorMessage = message
                         )
                     }
-                },
-                onFailure = { error ->
-                    val message = when (error.message) {
-                        "请先登录 The Kirari Network" -> "请先登录"
-                        else -> error.message ?: "连接测试失败"
-                    }
-                    ConnectionTestState(
-                        status = ConnectionTestStatus.FAILED,
-                        errorMessage = message
-                    )
-                }
+                )
             )
         }
     }
 
-    fun resetConnectionTest() {
-        connectionTestJob?.cancel()
-        connectionTestJob = null
-        _connectionTestState.value = ConnectionTestState()
+    fun resetConnectionTest(providerId: String) {
+        connectionTestJobs[providerId]?.cancel()
+        connectionTestJobs.remove(providerId)
+        connectionTestManager.reset(providerId)
     }
 
     fun loadProviderMeta(provider: ModelProviderConfig) {
