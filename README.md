@@ -2,7 +2,7 @@
 
 Hanako 是一个 Android 悬浮窗 AI 客户端，内置提示词支持的核心用途是搜题与快速作答，你也可以通过配置助手提示词配置成其他功能。  
 
-[[Download 0.0.8-alpha](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.8-alpha)]  
+[[Download 0.0.11-alpha](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.11-alpha)]  
 
 Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可能短：
 
@@ -142,7 +142,7 @@ Android 14 及以上设备，首次启动相关功能时会看到系统截屏授
 - Serper.dev
 - 自定义（Tavily 兼容格式）
 
-在「设置 → 更多 → 联网搜索」中配置搜索引擎 API Key 和相关参数。
+在「设置 → 联网搜索」中配置搜索引擎 API Key 和相关参数。
 
 ### 搜索流程
 
@@ -204,4 +204,3 @@ graph TD
 ```
 
 如果需要构建签名发布包，可在项目根目录提供 `keystore.properties`。
-
