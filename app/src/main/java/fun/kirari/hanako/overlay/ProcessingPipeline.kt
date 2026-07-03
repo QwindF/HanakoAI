@@ -228,7 +228,8 @@ internal class ProcessingPipeline(
         model: String,
         messages: List<`fun`.kirari.llm.core.ChatMessage>,
         firstDeltaTimeoutMillis: Long,
-        trustAllHttpsCertificates: Boolean
+        trustAllHttpsCertificates: Boolean,
+        onAnswerDelta: (String) -> Unit
     ): SearchAwareTextResult {
         val text = StringBuilder()
         val toolCalls = mutableListOf<LlmEvent.ToolCall>()
@@ -242,7 +243,10 @@ internal class ProcessingPipeline(
             trustAllHttpsCertificates = trustAllHttpsCertificates
         ).collect { event ->
             when (event) {
-                is LlmEvent.TextDelta -> text.append(event.text)
+                is LlmEvent.TextDelta -> {
+                    text.append(event.text)
+                    onAnswerDelta(event.text)
+                }
                 is LlmEvent.ToolCall -> {
                     if (event.name == ToolRegistry.WEB_SEARCH_TOOL.name) {
                         toolCalls += event
@@ -514,14 +518,14 @@ internal class ProcessingPipeline(
                 model = model,
                 messages = messages,
                 firstDeltaTimeoutMillis = searchModels.firstDeltaTimeoutMillis,
-                trustAllHttpsCertificates = searchModels.trustAllHttpsCertificates
+                trustAllHttpsCertificates = searchModels.trustAllHttpsCertificates,
+                onAnswerDelta = onAnswerDelta
             )
             val toolCall = pass.toolCalls.firstOrNull()
             if (toolCall == null) {
                 val finalText = pass.text.trim()
                 AppDebugLogStore.v(tag, "searchAware noToolCall finalTextLength=${finalText.length}")
                 if (finalText.isNotBlank()) {
-                    onAnswerDelta(pass.text)
                     return pass.text to (latestSearchOutcome ?: SearchOutcome(
                         performed = false,
                         results = emptyList(),
@@ -627,7 +631,8 @@ internal class ProcessingPipeline(
                 trustAllHttpsCertificates = models.trustAllHttpsCertificates,
                 onThoughtDelta = onThoughtDelta
             )
-            val toolCall = pass.toolCalls.firstOrNull()
+            val toolCall = pass.toolCalls.firstOrNull { it.name != ToolRegistry.WEB_SEARCH_TOOL.name }
+                ?: pass.toolCalls.firstOrNull()
             if (toolCall == null) {
                 AppDebugLogStore.v(tag, "automation toolLoop noToolCall textLength=${pass.text.trim().length}")
                 return buildAutomationResult(

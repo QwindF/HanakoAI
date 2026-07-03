@@ -44,7 +44,6 @@ internal fun ResultOverlaySheet(
     onClose: () -> Unit,
     panelHeightPx: Int
 ) {
-    val context = LocalContext.current
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
     val panelMaxHeight = with(density) { panelHeightPx.toDp() }
@@ -93,7 +92,6 @@ internal fun ResultOverlaySheet(
                     if (uiState.settings.processingRoute == ProcessingRoute.OCR_THEN_LLM) {
                         OcrResultCard(uiState)
                     }
-                    ProcessingEventsCard(nonSearchEvents(uiState.result?.events.orEmpty()))
                     AnswerResultCard(
                         answerText = answerText,
                         working = uiState.working,
@@ -151,27 +149,6 @@ private fun OcrResultCard(uiState: OverlayUiState) {
                 )
             } else {
                 Text("暂无内容")
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProcessingEventsCard(events: List<ProcessingEvent>) {
-    if (events.isEmpty()) return
-    ResultCard(title = "处理步骤") {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            events.forEach { event ->
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(event.title, style = MaterialTheme.typography.titleSmall)
-                    if (event.detail.isNotBlank()) {
-                        Text(
-                            event.detail,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
             }
         }
     }
@@ -273,9 +250,6 @@ private fun SmallHeaderAction(
         color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     )
 }
-
-private fun nonSearchEvents(events: List<ProcessingEvent>): List<ProcessingEvent> =
-    events.filterNot { it.title.startsWith("联网搜索") || it.title == "正在联网搜索" }
 
 private fun searchStatusText(events: List<ProcessingEvent>): String? {
     val searchEvent = events.lastOrNull { it.title == "正在联网搜索" || it.title == "联网搜索完成" } ?: return null
