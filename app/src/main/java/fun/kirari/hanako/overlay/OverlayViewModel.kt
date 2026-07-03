@@ -383,8 +383,9 @@ internal class OverlayViewModel(
                 enterMultiPageCaptureMode()
             }
             else -> {
-                // Processing 等状态长按展开菜单
-                bubbleStateMachine.dispatch(BubbleEvent.LongPress(anchorX, anchorY))
+                if (isBubbleMenuEnabled()) {
+                    bubbleStateMachine.dispatch(BubbleEvent.LongPress(anchorX, anchorY))
+                }
             }
         }
     }
@@ -412,7 +413,9 @@ internal class OverlayViewModel(
             is BubbleState.ShowingLetters,
             is BubbleState.Copied,
             is BubbleState.Error -> {
-                bubbleStateMachine.dispatch(BubbleEvent.LongPress(anchorX, anchorY))
+                if (isBubbleMenuEnabled()) {
+                    bubbleStateMachine.dispatch(BubbleEvent.LongPress(anchorX, anchorY))
+                }
             }
             is BubbleState.MenuExpanded -> {
                 bubbleStateMachine.dispatch(BubbleEvent.CloseMenu)
@@ -429,6 +432,10 @@ internal class OverlayViewModel(
         if (currentState is BubbleState.MenuExpanded) {
             bubbleStateMachine.dispatch(BubbleEvent.CloseMenu)
         }
+    }
+
+    private fun isBubbleMenuEnabled(): Boolean {
+        return _uiState.value.settings.automation.bubbleMenuEnabled
     }
 
     /**

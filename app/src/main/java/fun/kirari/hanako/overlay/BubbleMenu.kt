@@ -10,9 +10,13 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.automation.BubbleMenuEntry
@@ -67,16 +72,19 @@ fun BubbleMenu(
     onItemClick: (BubbleMenuItem) -> Unit,
     onDismiss: () -> Unit,
     onDismissFinished: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    viewportWidthPx: Float? = null,
+    viewportHeightPx: Float? = null,
+    closeSignal: Int = 0,
+    showPreviewLabels: Boolean = false,
+    previewLabelStartProgress: Float = 0.62f
 ) {
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
-    val screenWidthPx = configuration.screenWidthDp.toFloat() * density.density
-    val screenHeightPx = configuration.screenHeightDp.toFloat() * density.density
+    val screenWidthPx = viewportWidthPx ?: configuration.screenWidthDp.toFloat() * density.density
+    val screenHeightPx = viewportHeightPx ?: configuration.screenHeightDp.toFloat() * density.density
     val anchorCenterX = with(density) { anchorX.toDp() }
     val anchorCenterY = with(density) { anchorY.toDp() }
-    val screenWidthDp = configuration.screenWidthDp.dp
-    val screenHeightDp = configuration.screenHeightDp.dp
     val entries = BubbleMenuRegistry.entries
 
     val relativeX = anchorX.toFloat() / screenWidthPx
@@ -134,6 +142,12 @@ fun BubbleMenu(
             onDismissFinished()
         }
     }
+    LaunchedEffect(closeSignal) {
+        if (closeSignal > 0 && !closing) {
+            closing = true
+            onDismiss()
+        }
+    }
 
     /**
      * 统一的关闭入口：设置 closing 标志触发退场动画。
@@ -180,7 +194,65 @@ fun BubbleMenu(
                     requestClose()
                 }
             )
+            if (showPreviewLabels) {
+                val labelStartProgress = previewLabelStartProgress.coerceIn(0f, 0.98f)
+                val labelAlpha = (
+                    (expansionProgress.value - labelStartProgress) /
+                        (1f - labelStartProgress)
+                    ).coerceIn(0f, 1f)
+                MenuPreviewLabel(
+                    label = entry.previewLabel(),
+                    centerX = targetX,
+                    centerY = targetY,
+                    angleDeg = angleDeg,
+                    alpha = labelAlpha
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun MenuPreviewLabel(
+    label: String,
+    centerX: Dp,
+    centerY: Dp,
+    angleDeg: Double,
+    alpha: Float
+) {
+    val labelX = if (cos(Math.toRadians(angleDeg)) >= 0) {
+        centerX + ContainerWidth / 2 + 6.dp
+    } else {
+        centerX - ContainerWidth / 2 - 72.dp
+    }
+    val labelY = centerY - 13.dp
+    Surface(
+        modifier = Modifier
+            .offset(labelX, labelY)
+            .alpha(alpha),
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = androidx.compose.foundation.BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
+        )
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+private fun BubbleMenuEntry.previewLabel(): String {
+    return when (label) {
+        "视觉" -> "切换视觉"
+        "联网" -> "联网搜索"
+        "设置" -> "打开设置"
+        else -> label
     }
 }
 

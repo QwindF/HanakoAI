@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.DonutLarge
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.SmartToy
@@ -71,6 +72,21 @@ fun MoreSettingsScreen(
                     settings = automationSettings.bubbleAppearance,
                     onChange = { bubbleAppearance ->
                         onUpdateAutomationSettings(automationSettings.copy(bubbleAppearance = bubbleAppearance))
+                    }
+                )
+            }
+        }
+        item {
+            MoreSettingCard(
+                icon = Icons.Default.DonutLarge,
+                title = "扇形菜单设置",
+                subtitle = "配置悬浮球双击展开的快捷菜单。"
+            ) {
+                BubbleMenuSettingsCard(
+                    appearanceSettings = automationSettings.bubbleAppearance,
+                    enabled = automationSettings.bubbleMenuEnabled,
+                    onEnabledChange = { enabled ->
+                        onUpdateAutomationSettings(automationSettings.copy(bubbleMenuEnabled = enabled))
                     }
                 )
             }

@@ -157,6 +157,7 @@ data class AutomationSettings(
     val staticModeEnabled: Boolean = false,
     val staticIntraLetterGapMs: Int = 400,
     val staticInterLetterGapMs: Int = 1000,
+    val bubbleMenuEnabled: Boolean = true,
     val bubbleAppearance: BubbleAppearanceSettings = BubbleAppearanceSettings()
 )
 
