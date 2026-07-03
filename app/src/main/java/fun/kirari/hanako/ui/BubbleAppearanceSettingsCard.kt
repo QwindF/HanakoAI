@@ -129,7 +129,7 @@ internal fun BubbleAppearanceSettingsCard(
 
 @Composable
 private fun BubblePreview(settings: BubbleAppearanceSettings) {
-    var previewState by remember { mutableStateOf(BubblePreviewState.Idle) }
+    var previewState by remember { mutableStateOf(BubblePreviewState.Loading) }
     val bubbleDiameter = settings.bubbleDiameterDp.dp
     val spinnerDiameter = settings.spinnerDiameterDp.dp
     val overallAlpha = (settings.overallOpacity / 100f).coerceIn(0f, 1f)
@@ -207,7 +207,7 @@ private fun BubblePreviewCanvas(
             alpha = overallAlpha,
             shape = RoundedCornerShape(percent = 50)
         ) {
-            if (previewState == BubblePreviewState.Idle) {
+            if (previewState == BubblePreviewState.Idle || previewState == BubblePreviewState.Loading) {
                 Icon(
                     imageVector = Icons.Default.SmartToy,
                     contentDescription = null,
