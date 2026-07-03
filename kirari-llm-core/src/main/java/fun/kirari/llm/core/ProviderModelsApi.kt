@@ -92,7 +92,7 @@ class ProviderModelsApi(
         val startTime = System.currentTimeMillis()
         try {
             val request = Request.Builder()
-                .url(provider.modelsRequestUrl())
+                .url(provider.connectionTestUrl())
                 .applyProviderHeaders(provider)
                 .get()
                 .build()
@@ -135,6 +135,14 @@ class ProviderModelsApi(
             ProviderKind.ANTHROPIC -> "/models"
             ProviderKind.GOOGLE -> "/models?pageSize=100"
             ProviderKind.KIRARI_NETWORK -> "/meta"
+        }
+        return "${baseUrl.trimEnd('/')}$suffix"
+    }
+
+    private fun ProviderConfig.connectionTestUrl(): String {
+        val suffix = when (kind) {
+            ProviderKind.GOOGLE -> "/models?pageSize=100"
+            else -> "/models"
         }
         return "${baseUrl.trimEnd('/')}$suffix"
     }
