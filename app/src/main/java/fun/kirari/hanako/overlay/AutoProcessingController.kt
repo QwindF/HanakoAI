@@ -165,14 +165,33 @@ internal class AutoProcessingController(
                     }
                     ProcessingRoute.MULTIMODAL_DIRECT -> {
                         pipeline.validateVisionModels(models)
-                        val automationResult = pipeline.streamAutomationDirect(
+                        val (automationResult, searchOutcome) = pipeline.streamAutomationDirect(
                             models = models,
                             bitmaps = bitmaps,
                             onThoughtDelta = { delta ->
                                 uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
+                            },
+                            onSearchEvent = { event ->
+                                progressEvents.add(event)
+                                val progressResult = baseResult.copy(
+                                    extractedText = uiState.value.liveOcrText,
+                                    automationThought = uiState.value.liveAnswerText,
+                                    events = baseResult.events + progressEvents
+                                )
+                                upsertHistory(progressResult)
+                                uiState.update { current -> current.copy(result = progressResult) }
                             }
                         )
-                        pipeline.buildAutomationResult(baseResult, models, "", automationResult, historyId, screenshotPaths, null)
+                        pipeline.buildAutomationResult(
+                            baseResult,
+                            models,
+                            "",
+                            automationResult,
+                            historyId,
+                            screenshotPaths,
+                            searchOutcome,
+                            progressEvents
+                        )
                     }
                 }
                 AppDebugLogStore.i(tag, "processBitmaps gateway success resultId=${result.id} action=${action.type}")

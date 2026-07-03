@@ -206,14 +206,33 @@ internal class OverlayViewModel(
 
                         ProcessingRoute.MULTIMODAL_DIRECT -> {
                             pipeline.validateVisionModels(models)
-                            val answer = pipeline.streamVisionDirect(
+                            val (answer, searchOutcome) = pipeline.streamVisionDirect(
                                 models = models,
                                 bitmaps = bitmaps,
                                 onAnswerDelta = { delta ->
                                     _uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
+                                },
+                                onSearchEvent = { event ->
+                                    progressEvents.add(event)
+                                    val progressResult = baseResult.copy(
+                                        extractedText = _uiState.value.liveOcrText,
+                                        answer = _uiState.value.liveAnswerText,
+                                        events = baseResult.events + progressEvents
+                                    )
+                                    upsertHistory(progressResult)
+                                    _uiState.update { current -> current.copy(result = progressResult) }
                                 }
                             )
-                            pipeline.buildChatResult(baseResult, models, "", answer, historyId, screenshotPaths, null)
+                            pipeline.buildChatResult(
+                                baseResult,
+                                models,
+                                "",
+                                answer,
+                                historyId,
+                                screenshotPaths,
+                                searchOutcome,
+                                progressEvents
+                            )
                         }
                     }
                 }

@@ -65,13 +65,12 @@ private fun WebSearchSettingsCard(
     ) {
         SwitchSettingRow(
             title = "启用联网搜索",
-            subtitle = "OCR 完成后允许模型通过 web_search 工具获取最新信息。",
+            subtitle = "开启后允许当前任务模型在需要时通过 web_search 工具获取最新信息。",
             checked = webSearchSettings.enabled,
             onCheckedChange = { enabled ->
                 onUpdateWebSearchSettings { it.copy(enabled = enabled) }
             }
         )
-        Text("仅在 OCR -> 文本模型路由下可用。")
         Box {
             OutlinedButton(
                 onClick = { searchProviderExpanded = true },

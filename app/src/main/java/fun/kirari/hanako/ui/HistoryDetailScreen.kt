@@ -114,7 +114,7 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
         }
         if (result.events.isNotEmpty()) {
             item {
-                HistoryEventsCard(result)
+                HistoryEventsCard(nonSearchEvents(result.events))
             }
         }
         if (result.automationAction != null || result.automationThought.isNotBlank()) {
@@ -156,6 +156,14 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
                         )
                     }
                 ) {
+                    searchStatusText(result.events)?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
                     HistoryMarkdownOrEmpty(result.answer)
                 }
             }
@@ -251,10 +259,11 @@ private fun HistoryScreenshots(
 }
 
 @Composable
-private fun HistoryEventsCard(result: ProcessingResult) {
+private fun HistoryEventsCard(events: List<`fun`.kirari.hanako.data.ProcessingEvent>) {
+    if (events.isEmpty()) return
     HistoryResultCard(title = "处理步骤") {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            result.events.forEach { event ->
+            events.forEach { event ->
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(event.title, fontWeight = FontWeight.SemiBold)
                     if (event.detail.isNotBlank()) {
@@ -279,6 +288,21 @@ private fun HistoryMarkdownOrEmpty(content: String) {
         )
     } else {
         Text("暂无内容")
+    }
+}
+
+private fun nonSearchEvents(events: List<`fun`.kirari.hanako.data.ProcessingEvent>): List<`fun`.kirari.hanako.data.ProcessingEvent> =
+    events.filterNot { it.title.startsWith("联网搜索") || it.title == "正在联网搜索" }
+
+private fun searchStatusText(events: List<`fun`.kirari.hanako.data.ProcessingEvent>): String? {
+    val searchEvent = events.lastOrNull { it.title == "正在联网搜索" || it.title == "联网搜索完成" } ?: return null
+    val keyword = Regex("关键词：([^，]+)").find(searchEvent.detail)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    if (keyword.isBlank()) return null
+    val count = Regex("获取\\s*(\\d+)\\s*条结果").find(searchEvent.detail)?.groupValues?.getOrNull(1)
+    return if (count.isNullOrBlank()) {
+        "已搜索 $keyword"
+    } else {
+        "已搜索 $keyword（共${count}条结果）"
     }
 }
 

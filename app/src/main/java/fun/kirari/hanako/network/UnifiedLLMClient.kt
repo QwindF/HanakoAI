@@ -4,6 +4,7 @@ import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.KIRARI_PROVIDER_ID
 import `fun`.kirari.hanako.data.SettingsStore
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.llm.core.ChatMessage
 import `fun`.kirari.llm.core.LlmClient
 import `fun`.kirari.llm.core.LlmEvent
 import `fun`.kirari.llm.core.ProviderConfig
@@ -61,6 +62,47 @@ internal class UnifiedLLMClient(
                 systemPrompt = systemPrompt,
                 userPrompt = userPrompt,
                 imagesBase64 = imagesBase64,
+                tools = tools,
+                firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
+                trustAllHttpsCertificates = trustAllHttpsCertificates
+            )
+        )
+    }
+
+    suspend fun streamMessages(
+        provider: ModelProviderConfig,
+        model: String,
+        messages: List<ChatMessage>,
+        tools: List<ToolDef>? = null,
+        firstDeltaTimeoutMillis: Long,
+        trustAllHttpsCertificates: Boolean = false
+    ): Flow<LlmEvent> {
+        AppDebugLogStore.i(tag, "streamMessages provider=${provider.kind} model=$model messageCount=${messages.size} hasTools=${tools != null} trustAllHttps=$trustAllHttpsCertificates")
+        val resolvedProvider = when (provider.kind) {
+            ProviderKind.KIRARI_NETWORK -> {
+                val manager = requireNotNull(kirariAuthManager) { "KirariAuthManager is required for Kirari provider" }
+                val store = requireNotNull(settingsStore) { "SettingsStore is required for Kirari provider" }
+                val settings = store.read()
+                val accessToken = manager.ensureValidAccessToken(
+                    settings = settings,
+                    trustAllHttpsCertificates = trustAllHttpsCertificates
+                )
+                require(accessToken.isNotBlank()) { "请先登录 The Kirari Network" }
+                val baseUrl = settings.availableKirariServerUrl()
+                ProviderConfig(
+                    kind = ProviderKind.KIRARI_NETWORK,
+                    baseUrl = baseUrl.trimEnd('/') + "/api/llm",
+                    apiKey = accessToken,
+                    headers = mapOf("Accept" to "application/json, text/event-stream")
+                )
+            }
+            else -> provider.toCoreProvider()
+        }
+        return coreClient.stream(
+            StreamRequest(
+                provider = resolvedProvider,
+                model = model,
+                messages = messages,
                 tools = tools,
                 firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
                 trustAllHttpsCertificates = trustAllHttpsCertificates

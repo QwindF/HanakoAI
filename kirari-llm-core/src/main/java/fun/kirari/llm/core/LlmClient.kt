@@ -19,9 +19,9 @@ class LlmClient(
         val adapter = when (request.provider.kind) {
             ProviderKind.OPENAI_COMPATIBLE,
             ProviderKind.KIRARI_NETWORK -> OpenAiChatAdapter(sseClient, json, logger)
-            ProviderKind.OPENAI_RESPONSES -> OpenAiResponsesAdapter(sseClient, json)
-            ProviderKind.ANTHROPIC -> AnthropicAdapter(sseClient, json)
-            ProviderKind.GOOGLE -> GoogleAdapter(sseClient, json)
+            ProviderKind.OPENAI_RESPONSES -> OpenAiResponsesAdapter(sseClient, json, logger)
+            ProviderKind.ANTHROPIC -> AnthropicAdapter(sseClient, json, logger)
+            ProviderKind.GOOGLE -> GoogleAdapter(sseClient, json, logger)
         }
         return adapter.stream(request)
     }

@@ -93,10 +93,11 @@ internal fun ResultOverlaySheet(
                     if (uiState.settings.processingRoute == ProcessingRoute.OCR_THEN_LLM) {
                         OcrResultCard(uiState)
                     }
-                    ProcessingEventsCard(uiState.result?.events.orEmpty())
+                    ProcessingEventsCard(nonSearchEvents(uiState.result?.events.orEmpty()))
                     AnswerResultCard(
                         answerText = answerText,
-                        working = uiState.working
+                        working = uiState.working,
+                        searchStatus = searchStatusText(uiState.result?.events.orEmpty())
                     )
                     uiState.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
@@ -179,7 +180,8 @@ private fun ProcessingEventsCard(events: List<ProcessingEvent>) {
 @Composable
 private fun AnswerResultCard(
     answerText: String,
-    working: Boolean
+    working: Boolean,
+    searchStatus: String?
 ) {
     val context = LocalContext.current
     ResultCard(
@@ -195,6 +197,13 @@ private fun AnswerResultCard(
             }
         }
     ) {
+        searchStatus?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
         when {
             answerText.isNotBlank() -> MarkdownLatexText(
                 content = answerText,
@@ -263,6 +272,21 @@ private fun SmallHeaderAction(
         style = MaterialTheme.typography.labelMedium,
         color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     )
+}
+
+private fun nonSearchEvents(events: List<ProcessingEvent>): List<ProcessingEvent> =
+    events.filterNot { it.title.startsWith("联网搜索") || it.title == "正在联网搜索" }
+
+private fun searchStatusText(events: List<ProcessingEvent>): String? {
+    val searchEvent = events.lastOrNull { it.title == "正在联网搜索" || it.title == "联网搜索完成" } ?: return null
+    val keyword = Regex("关键词：([^，]+)").find(searchEvent.detail)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+    if (keyword.isBlank()) return null
+    val count = Regex("获取\\s*(\\d+)\\s*条结果").find(searchEvent.detail)?.groupValues?.getOrNull(1)
+    return if (count.isNullOrBlank()) {
+        "已搜索 $keyword"
+    } else {
+        "已搜索 $keyword（共${count}条结果）"
+    }
 }
 
 @Composable

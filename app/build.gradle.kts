@@ -50,7 +50,12 @@ val kirariServerUrlEditable = gradleBooleanProperty(
 val showDebugLogs = gradleBooleanProperty(
     name = "hanakoShowDebugLogs",
     envName = "HANAKO_SHOW_DEBUG_LOGS",
-    default = true
+    default = false
+)
+val verboseLlmLogs = gradleBooleanProperty(
+    name = "hanakoVerboseLlmLogs",
+    envName = "HANAKO_VERBOSE_LLM_LOGS",
+    default = false
 )
 val showKirariEntry = gradleBooleanProperty(
     name = "hanakoShowKirariEntry",
@@ -82,6 +87,7 @@ android {
         buildConfigField("String", "KIRARI_SERVER_URL", quoteBuildConfig(kirariServerUrl))
         buildConfigField("boolean", "KIRARI_SERVER_URL_EDITABLE", kirariServerUrlEditable.toString())
         buildConfigField("boolean", "SHOW_DEBUG_LOGS", showDebugLogs.toString())
+        buildConfigField("boolean", "VERBOSE_LLM_LOGS", verboseLlmLogs.toString())
         buildConfigField("boolean", "SHOW_KIRARI_ENTRY", showKirariEntry.toString())
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

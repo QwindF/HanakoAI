@@ -67,6 +67,9 @@ class SseStreamClient(
                         if (eventCount <= 5 || eventCount % 25 == 0) {
                             logger.d(tag, "stream event#$eventCount type=$type id=$id dataLength=${data.length}")
                         }
+                        if (logger.isVerboseEnabled) {
+                            logger.v(tag, "stream raw event#$eventCount type=$type id=$id data=${data.sanitizeForLog()}")
+                        }
                         val result = onEvent(eventSource, type, id, data)
                         val delta = result?.delta
                         if (!delta.isNullOrEmpty()) {

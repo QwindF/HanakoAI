@@ -20,8 +20,8 @@ import `fun`.kirari.hanako.data.resolveModelProvider
 import `fun`.kirari.hanako.data.saveToHistoryFile
 import `fun`.kirari.hanako.debug.AppDebugLogStore
 import `fun`.kirari.hanako.localocr.LocalOcrManager
-import `fun`.kirari.hanako.network.ToolDef
 import `fun`.kirari.hanako.network.ToolRegistry
+import `fun`.kirari.hanako.network.ToolDef
 import `fun`.kirari.hanako.network.UnifiedLLMClient
 import `fun`.kirari.hanako.network.search.SearchContext
 import `fun`.kirari.hanako.network.search.SearchOrchestrator
@@ -32,8 +32,12 @@ import `fun`.kirari.llm.core.visibleWhitespaceForLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 internal class ProcessingPipeline(
     private val appContext: Context,
@@ -173,6 +177,16 @@ internal class ProcessingPipeline(
         val toolCall: LlmEvent.ToolCall?
     )
 
+    private data class SearchAwareTextResult(
+        val text: String,
+        val toolCalls: List<LlmEvent.ToolCall>
+    )
+
+    private data class ToolLoopResult(
+        val text: String,
+        val toolCalls: List<LlmEvent.ToolCall>
+    )
+
     private suspend fun collectToolStream(
         provider: ModelProviderConfig,
         model: String,
@@ -209,28 +223,67 @@ internal class ProcessingPipeline(
         return StreamResult(thought.toString().trim(), toolCall)
     }
 
-    private suspend fun collectSearchToolCall(
+    private suspend fun collectSearchAwareTextStream(
         provider: ModelProviderConfig,
         model: String,
-        questionText: String,
+        messages: List<`fun`.kirari.llm.core.ChatMessage>,
         firstDeltaTimeoutMillis: Long,
         trustAllHttpsCertificates: Boolean
-    ): LlmEvent.ToolCall? {
-        var toolCall: LlmEvent.ToolCall? = null
-        unifiedClient.stream(
+    ): SearchAwareTextResult {
+        val text = StringBuilder()
+        val toolCalls = mutableListOf<LlmEvent.ToolCall>()
+        logMessages("searchAware", model, messages)
+        unifiedClient.streamMessages(
             provider = provider,
             model = model,
-            systemPrompt = webSearchSystemPrompt(),
-            userPrompt = "以下是 OCR 结果，请判断是否需要联网搜索。如果需要，请调用 web_search；如果不需要，直接简短说明无需搜索即可。\n$questionText",
+            messages = messages,
             tools = listOf(ToolRegistry.WEB_SEARCH_TOOL),
             firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
             trustAllHttpsCertificates = trustAllHttpsCertificates
         ).collect { event ->
-            if (event is LlmEvent.ToolCall && event.name == ToolRegistry.WEB_SEARCH_TOOL.name) {
-                toolCall = event
+            when (event) {
+                is LlmEvent.TextDelta -> text.append(event.text)
+                is LlmEvent.ToolCall -> {
+                    if (event.name == ToolRegistry.WEB_SEARCH_TOOL.name) {
+                        toolCalls += event
+                    }
+                }
+                is LlmEvent.Done -> {}
             }
         }
-        return toolCall
+        return SearchAwareTextResult(text = text.toString(), toolCalls = toolCalls)
+    }
+
+    private suspend fun collectToolLoopStream(
+        provider: ModelProviderConfig,
+        model: String,
+        messages: List<`fun`.kirari.llm.core.ChatMessage>,
+        tools: List<ToolDef>,
+        firstDeltaTimeoutMillis: Long,
+        trustAllHttpsCertificates: Boolean,
+        onThoughtDelta: (String) -> Unit
+    ): ToolLoopResult {
+        val text = StringBuilder()
+        val toolCalls = mutableListOf<LlmEvent.ToolCall>()
+        logMessages("toolLoop", model, messages)
+        unifiedClient.streamMessages(
+            provider = provider,
+            model = model,
+            messages = messages,
+            tools = tools,
+            firstDeltaTimeoutMillis = firstDeltaTimeoutMillis,
+            trustAllHttpsCertificates = trustAllHttpsCertificates
+        ).collect { event ->
+            when (event) {
+                is LlmEvent.TextDelta -> {
+                    text.append(event.text)
+                    onThoughtDelta(event.text)
+                }
+                is LlmEvent.ToolCall -> toolCalls += event
+                is LlmEvent.Done -> {}
+            }
+        }
+        return ToolLoopResult(text = text.toString(), toolCalls = toolCalls)
     }
 
     private fun buildAutomationResult(streamResult: StreamResult): AutomationResult {
@@ -321,19 +374,17 @@ internal class ProcessingPipeline(
         val combinedOcrText = ocrTexts.joinToString("\n\n---\n\n")
         onOcrDelta(combinedOcrText)
 
-        val searchOutcome = maybeSearch(models, combinedOcrText, isAutomation = false, onSearchEvent = onSearchEvent)
-        val userPrompt = buildEnhancedUserPrompt(
-            basePrompt = "以下是 OCR 结果，请完成任务：\n$combinedOcrText",
-            searchOutcome = searchOutcome
-        )
-        val answer = collectTextStream(
+        val answerRequest = "以下是 OCR 结果，请完成任务：\n$combinedOcrText"
+        val (answer, searchOutcome) = runSearchAwareAnswer(
             provider = requireNotNull(models.textProvider),
             model = models.textModel,
-            systemPrompt = assistantPromptWithCopyMarker(models.assistant.textPrompt),
-            userPrompt = userPrompt,
-            firstDeltaTimeoutMillis = models.firstDeltaTimeoutMillis,
-            trustAllHttpsCertificates = models.trustAllHttpsCertificates,
-            onDelta = onAnswerDelta
+            assistantPrompt = assistantPromptWithCopyMarker(models.assistant.textPrompt),
+            basePrompt = answerRequest,
+            imagesBase64 = emptyList(),
+            searchModels = models,
+            isAutomation = false,
+            onSearchEvent = onSearchEvent,
+            onAnswerDelta = onAnswerDelta
         )
         AppDebugLogStore.i(tag, "streamOcrThenChat success ocrLength=${combinedOcrText.length} answerLength=${answer.length}")
         return Triple(combinedOcrText, answer, searchOutcome)
@@ -342,22 +393,24 @@ internal class ProcessingPipeline(
     suspend fun streamVisionDirect(
         models: ResolvedModels,
         bitmaps: List<Bitmap>,
-        onAnswerDelta: (String) -> Unit
-    ): String {
+        onAnswerDelta: (String) -> Unit,
+        onSearchEvent: suspend (ProcessingEvent) -> Unit = {}
+    ): Pair<String, SearchOutcome?> {
         AppDebugLogStore.i(tag, "streamVisionDirect visionModel=${models.visionModel} imageCount=${bitmaps.size}")
         val imagesBase64 = bitmaps.map { it.toBase64Jpeg() }
-        val answer = collectTextStream(
+        val result = runSearchAwareAnswer(
             provider = requireNotNull(models.visionProvider),
             model = models.visionModel,
-            systemPrompt = assistantPromptWithCopyMarker(models.assistant.visionPrompt),
-            userPrompt = "请直接基于图片内容完成任务。",
+            assistantPrompt = assistantPromptWithCopyMarker(models.assistant.visionPrompt),
+            basePrompt = "请直接基于图片内容完成任务。",
             imagesBase64 = imagesBase64,
-            firstDeltaTimeoutMillis = models.firstDeltaTimeoutMillis,
-            trustAllHttpsCertificates = models.trustAllHttpsCertificates,
-            onDelta = onAnswerDelta
+            searchModels = models,
+            isAutomation = false,
+            onSearchEvent = onSearchEvent,
+            onAnswerDelta = onAnswerDelta
         )
-        AppDebugLogStore.i(tag, "streamVisionDirect success answerLength=${answer.length}")
-        return answer
+        AppDebugLogStore.i(tag, "streamVisionDirect success answerLength=${result.first.length}")
+        return result
     }
 
     suspend fun streamOcrThenAutomation(
@@ -388,21 +441,16 @@ internal class ProcessingPipeline(
         }
         val combinedOcrText = ocrTexts.joinToString("\n\n---\n\n")
         onOcrDelta(combinedOcrText)
-        val searchOutcome = maybeSearch(models, combinedOcrText, isAutomation = true, onSearchEvent = onSearchEvent)
-        val userPrompt = buildEnhancedUserPrompt(
-            basePrompt = "以下是 OCR 结果，请先输出思考过程，再通过一次工具调用给出自动模式动作：\n$combinedOcrText",
-            searchOutcome = searchOutcome
-        )
-        val streamResult = collectToolStream(
+        val (result, searchOutcome) = runAutomationToolLoop(
             provider = requireNotNull(models.textProvider),
             model = models.textModel,
-            systemPrompt = automationSystemPrompt(models.assistant.textPrompt),
-            userPrompt = userPrompt,
-            firstDeltaTimeoutMillis = models.firstDeltaTimeoutMillis,
-            trustAllHttpsCertificates = models.trustAllHttpsCertificates,
+            assistantPrompt = models.assistant.textPrompt,
+            basePrompt = "以下是 OCR 结果，请先输出思考过程，再通过一次工具调用给出自动模式动作：\n$combinedOcrText",
+            imagesBase64 = emptyList(),
+            models = models,
+            onSearchEvent = onSearchEvent,
             onThoughtDelta = onThoughtDelta
         )
-        val result = buildAutomationResult(streamResult)
         AppDebugLogStore.i(tag, "streamOcrThenAutomation success ocrLength=${combinedOcrText.length} thoughtLength=${result.thought.length} action=${result.action.type}")
         return Triple(combinedOcrText, result, searchOutcome)
     }
@@ -410,71 +458,229 @@ internal class ProcessingPipeline(
     suspend fun streamAutomationDirect(
         models: ResolvedModels,
         bitmaps: List<Bitmap>,
-        onThoughtDelta: (String) -> Unit
-    ): AutomationResult {
+        onThoughtDelta: (String) -> Unit,
+        onSearchEvent: suspend (ProcessingEvent) -> Unit = {}
+    ): Pair<AutomationResult, SearchOutcome?> {
         AppDebugLogStore.i(tag, "streamAutomationDirect visionModel=${models.visionModel} imageCount=${bitmaps.size}")
         val imagesBase64 = bitmaps.map { it.toBase64Jpeg() }
-        val streamResult = collectToolStream(
+        val result = runAutomationToolLoop(
             provider = requireNotNull(models.visionProvider),
             model = models.visionModel,
-            systemPrompt = automationSystemPrompt(models.assistant.visionPrompt),
-            userPrompt = "请根据整张屏幕截图先输出思考过程，再通过一次工具调用给出自动模式动作。",
+            assistantPrompt = models.assistant.visionPrompt,
+            basePrompt = "请根据整张屏幕截图先输出思考过程，再通过一次工具调用给出自动模式动作。",
+            imagesBase64 = imagesBase64,
+            models = models,
+            onSearchEvent = onSearchEvent,
+            onThoughtDelta = onThoughtDelta
+        )
+        AppDebugLogStore.i(tag, "streamAutomationDirect success thoughtLength=${result.first.thought.length} action=${result.first.action.type} actionText=${result.first.action.text}")
+        return result
+    }
+
+    private suspend fun runSearchAwareAnswer(
+        provider: ModelProviderConfig,
+        model: String,
+        assistantPrompt: String,
+        basePrompt: String,
+        imagesBase64: List<String>,
+        searchModels: ResolvedModels,
+        isAutomation: Boolean,
+        onSearchEvent: suspend (ProcessingEvent) -> Unit,
+        onAnswerDelta: (String) -> Unit
+    ): Pair<String, SearchOutcome?> {
+        if (!searchModels.webSearchSettings.enabled || searchOrchestrator == null) {
+            val answer = collectTextStream(
+                provider = provider,
+                model = model,
+                systemPrompt = assistantPrompt,
+                userPrompt = basePrompt,
+                imagesBase64 = imagesBase64,
+                firstDeltaTimeoutMillis = searchModels.firstDeltaTimeoutMillis,
+                trustAllHttpsCertificates = searchModels.trustAllHttpsCertificates,
+                onDelta = onAnswerDelta
+            )
+            return answer to null
+        }
+        val messages = mutableListOf<`fun`.kirari.llm.core.ChatMessage>()
+        if (assistantPrompt.isNotBlank()) {
+            messages += textMessage(role = "system", text = searchEnabledAssistantPrompt(assistantPrompt))
+        }
+        messages += userMessage(basePrompt, imagesBase64)
+
+        var latestSearchOutcome: SearchOutcome? = null
+        repeat(3) {
+            val pass = collectSearchAwareTextStream(
+                provider = provider,
+                model = model,
+                messages = messages,
+                firstDeltaTimeoutMillis = searchModels.firstDeltaTimeoutMillis,
+                trustAllHttpsCertificates = searchModels.trustAllHttpsCertificates
+            )
+            val toolCall = pass.toolCalls.firstOrNull()
+            if (toolCall == null) {
+                val finalText = pass.text.trim()
+                AppDebugLogStore.v(tag, "searchAware noToolCall finalTextLength=${finalText.length}")
+                if (finalText.isNotBlank()) {
+                    onAnswerDelta(pass.text)
+                    return pass.text to (latestSearchOutcome ?: SearchOutcome(
+                        performed = false,
+                        results = emptyList(),
+                        formattedText = null,
+                        keywords = null,
+                        skipReason = SearchSkipReason.LLM_NO_TOOL_CALL
+                    ))
+                }
+                val fallbackPrompt = buildEnhancedUserPrompt(basePrompt, latestSearchOutcome)
+                val fallbackAnswer = collectTextStream(
+                    provider = provider,
+                    model = model,
+                    systemPrompt = assistantPrompt,
+                    userPrompt = fallbackPrompt,
+                    imagesBase64 = imagesBase64,
+                    firstDeltaTimeoutMillis = searchModels.firstDeltaTimeoutMillis,
+                    trustAllHttpsCertificates = searchModels.trustAllHttpsCertificates,
+                    onDelta = onAnswerDelta
+                )
+                return fallbackAnswer to (latestSearchOutcome ?: SearchOutcome(
+                    performed = false,
+                    results = emptyList(),
+                    formattedText = null,
+                    keywords = null,
+                    skipReason = SearchSkipReason.LLM_NO_TOOL_CALL
+                ))
+            }
+            val query = toolCall.arguments["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            AppDebugLogStore.v(tag, "searchAware toolCall id=${toolCall.id} name=${toolCall.name} query=$query")
+            if (query.isNotBlank()) {
+                onSearchEvent(ProcessingEvent(title = "正在联网搜索", detail = "关键词：$query"))
+            }
+            val searchOutcome = searchOrchestrator.execute(
+                SearchContext(
+                    query = query,
+                    settings = searchModels.webSearchSettings,
+                    trustAllHttps = searchModels.trustAllHttpsCertificates,
+                    isAutomation = isAutomation
+                )
+            )
+            latestSearchOutcome = searchOutcome
+            searchEvent(searchOutcome)?.let { onSearchEvent(it) }
+            val toolCallId = toolCall.id ?: "call_web_search_${it + 1}"
+            messages += assistantToolCallMessage(text = pass.text, toolCallId = toolCallId, toolName = toolCall.name, arguments = toolCall.arguments)
+            messages += toolResultMessage(toolCallId, searchOutcome.formattedText ?: searchOutcome.skipReason?.displayText.orEmpty())
+            AppDebugLogStore.v(tag, "searchAware toolResult toolCallId=$toolCallId result=${(searchOutcome.formattedText ?: searchOutcome.skipReason?.displayText.orEmpty()).take(1000)}")
+        }
+
+        val fallbackPrompt = buildEnhancedUserPrompt(basePrompt, latestSearchOutcome)
+        val answer = collectTextStream(
+            provider = provider,
+            model = model,
+            systemPrompt = assistantPrompt,
+            userPrompt = fallbackPrompt,
+            imagesBase64 = imagesBase64,
+            firstDeltaTimeoutMillis = searchModels.firstDeltaTimeoutMillis,
+            trustAllHttpsCertificates = searchModels.trustAllHttpsCertificates,
+            onDelta = onAnswerDelta
+        )
+        return answer to latestSearchOutcome
+    }
+
+    private suspend fun runAutomationToolLoop(
+        provider: ModelProviderConfig,
+        model: String,
+        assistantPrompt: String,
+        basePrompt: String,
+        imagesBase64: List<String>,
+        models: ResolvedModels,
+        onSearchEvent: suspend (ProcessingEvent) -> Unit,
+        onThoughtDelta: (String) -> Unit
+    ): Pair<AutomationResult, SearchOutcome?> {
+        if (searchOrchestrator == null || !models.webSearchSettings.enabled) {
+            val streamResult = collectToolStream(
+                provider = provider,
+                model = model,
+                systemPrompt = automationSystemPrompt(assistantPrompt),
+                userPrompt = basePrompt,
+                imagesBase64 = imagesBase64,
+                firstDeltaTimeoutMillis = models.firstDeltaTimeoutMillis,
+                trustAllHttpsCertificates = models.trustAllHttpsCertificates,
+                onThoughtDelta = onThoughtDelta
+            )
+            return buildAutomationResult(streamResult) to null
+        }
+
+        val messages = mutableListOf<`fun`.kirari.llm.core.ChatMessage>()
+        messages += textMessage(
+            role = "system",
+            text = automationSystemPrompt(searchEnabledAssistantPrompt(assistantPrompt))
+        )
+        messages += userMessage(basePrompt, imagesBase64)
+        var latestSearchOutcome: SearchOutcome? = null
+        val tools = listOf(ToolRegistry.WEB_SEARCH_TOOL) + ToolRegistry.AUTOMATION_TOOLS
+
+        repeat(4) { index ->
+            val pass = collectToolLoopStream(
+                provider = provider,
+                model = model,
+                messages = messages,
+                tools = tools,
+                firstDeltaTimeoutMillis = models.firstDeltaTimeoutMillis,
+                trustAllHttpsCertificates = models.trustAllHttpsCertificates,
+                onThoughtDelta = onThoughtDelta
+            )
+            val toolCall = pass.toolCalls.firstOrNull()
+            if (toolCall == null) {
+                AppDebugLogStore.v(tag, "automation toolLoop noToolCall textLength=${pass.text.trim().length}")
+                return buildAutomationResult(
+                    StreamResult(thought = pass.text.trim(), toolCall = null)
+                ) to latestSearchOutcome
+            }
+            if (toolCall.name == ToolRegistry.WEB_SEARCH_TOOL.name) {
+                val query = toolCall.arguments["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                AppDebugLogStore.v(tag, "automation webSearch toolCall id=${toolCall.id} query=$query")
+                if (query.isNotBlank()) {
+                    onSearchEvent(ProcessingEvent(title = "正在联网搜索", detail = "关键词：$query"))
+                }
+                val searchOutcome = searchOrchestrator.execute(
+                    SearchContext(
+                        query = query,
+                        settings = models.webSearchSettings,
+                        trustAllHttps = models.trustAllHttpsCertificates,
+                        isAutomation = true
+                    )
+                )
+                latestSearchOutcome = searchOutcome
+                searchEvent(searchOutcome)?.let { onSearchEvent(it) }
+                val toolCallId = toolCall.id ?: "call_web_search_${index + 1}"
+                messages += assistantToolCallMessage(
+                    text = pass.text,
+                    toolCallId = toolCallId,
+                    toolName = toolCall.name,
+                    arguments = toolCall.arguments
+                )
+                messages += toolResultMessage(
+                    toolCallId,
+                    searchOutcome.formattedText ?: searchOutcome.skipReason?.displayText.orEmpty()
+                )
+                AppDebugLogStore.v(tag, "automation webSearch toolResult toolCallId=$toolCallId result=${(searchOutcome.formattedText ?: searchOutcome.skipReason?.displayText.orEmpty()).take(1000)}")
+                return@repeat
+            }
+            AppDebugLogStore.v(tag, "automation finalToolCall id=${toolCall.id} name=${toolCall.name} args=${toolCall.arguments}")
+            return buildAutomationResult(
+                StreamResult(thought = pass.text.trim(), toolCall = toolCall)
+            ) to latestSearchOutcome
+        }
+
+        val fallback = collectToolStream(
+            provider = provider,
+            model = model,
+            systemPrompt = automationSystemPrompt(assistantPrompt),
+            userPrompt = buildEnhancedUserPrompt(basePrompt, latestSearchOutcome),
             imagesBase64 = imagesBase64,
             firstDeltaTimeoutMillis = models.firstDeltaTimeoutMillis,
             trustAllHttpsCertificates = models.trustAllHttpsCertificates,
             onThoughtDelta = onThoughtDelta
         )
-        val result = buildAutomationResult(streamResult)
-        AppDebugLogStore.i(tag, "streamAutomationDirect success thoughtLength=${result.thought.length} action=${result.action.type} actionText=${result.action.text}")
-        return result
-    }
-
-    /**
-     * 如果搜索编排器存在且设置已启用，执行联网搜索。
-     * 任何失败都不阻断主流程，返回 [SearchOutcome] 供调用方决定如何使用。
-     */
-    private suspend fun maybeSearch(
-        models: ResolvedModels,
-        questionText: String,
-        isAutomation: Boolean,
-        onSearchEvent: suspend (ProcessingEvent) -> Unit
-    ): SearchOutcome? {
-        val orchestrator = searchOrchestrator ?: return null
-        if (!models.webSearchSettings.enabled) return null
-        val provider = models.searchProvider ?: return null
-        if (models.searchModel.isBlank()) return null
-        val toolCall = collectSearchToolCall(
-            provider = provider,
-            model = models.searchModel,
-            questionText = questionText,
-            firstDeltaTimeoutMillis = models.firstDeltaTimeoutMillis,
-            trustAllHttpsCertificates = models.trustAllHttpsCertificates
-        ) ?: return SearchOutcome(
-            performed = false,
-            results = emptyList(),
-            formattedText = null,
-            keywords = null,
-            skipReason = SearchSkipReason.LLM_NO_TOOL_CALL
-        )
-        val query = toolCall.arguments["query"]?.jsonPrimitive?.contentOrNull.orEmpty()
-        if (query.isNotBlank()) {
-            onSearchEvent(
-                ProcessingEvent(
-                    title = "正在联网搜索",
-                    detail = "关键词：$query"
-                )
-            )
-        }
-        val outcome = orchestrator.execute(
-            SearchContext(
-                query = query,
-                settings = models.webSearchSettings,
-                trustAllHttps = models.trustAllHttpsCertificates,
-                isAutomation = isAutomation
-            )
-        )
-        searchEvent(outcome)?.let { onSearchEvent(it) }
-        return outcome
+        return buildAutomationResult(fallback) to latestSearchOutcome
     }
 
     /**
@@ -606,13 +812,97 @@ private fun assistantPromptWithCopyMarker(systemPrompt: String): String {
     """.trimIndent()
 }
 
-private fun webSearchSystemPrompt(): String = """
-    你是联网搜索判断器。你只能通过工具调用表达需要搜索，不要输出 JSON。
-    当题目需要最新事实、时政新闻、政策法规更新、体育赛果、最新统计数据、公众人物近况、产品/软件/模型版本、公司动态，或明确包含"最新""当前""现在""今年""近期""联网搜索"等要求时，调用 web_search。
-    web_search 的 query 参数必须是简洁搜索关键词。
-    数学计算、自然科学原理、历史定论、翻译、语法、编程逻辑和算法题通常不需要搜索。
-    如果不需要搜索，不调用任何工具，只输出一句"无需搜索"。
-""".trimIndent()
+private fun searchEnabledAssistantPrompt(systemPrompt: String): String {
+    val trimmed = systemPrompt.trim()
+    return """
+        当问题依赖最新事实、新闻、政策法规更新、体育赛果、统计数据、公众人物近况、产品/软件/模型版本、公司动态，或明确要求联网查询时，先调用 web_search。
+        web_search 的 query 参数必须是简洁关键词或短语，不要写成长句。
+        不需要搜索时，直接继续完成任务，不要解释你是否联网。
+
+        $trimmed
+    """.trimIndent()
+}
+
+private fun textMessage(role: String, text: String): `fun`.kirari.llm.core.ChatMessage =
+    `fun`.kirari.llm.core.ChatMessage(
+        role = role,
+        content = buildJsonArray {
+            add(buildJsonObject {
+                put("type", "input_text")
+                put("text", text)
+            })
+        }
+    )
+
+private fun userMessage(text: String, imagesBase64: List<String>): `fun`.kirari.llm.core.ChatMessage =
+    `fun`.kirari.llm.core.ChatMessage(
+        role = "user",
+        content = buildJsonArray {
+            if (text.isNotBlank()) {
+                add(buildJsonObject {
+                    put("type", "input_text")
+                    put("text", text)
+                })
+            }
+            imagesBase64.forEach { imageBase64 ->
+                add(buildJsonObject {
+                    put("type", "input_image")
+                    put("image_url", "data:image/jpeg;base64,$imageBase64")
+                })
+            }
+        }
+    )
+
+private fun assistantToolCallMessage(
+    text: String,
+    toolCallId: String,
+    toolName: String,
+    arguments: JsonObject
+): `fun`.kirari.llm.core.ChatMessage =
+    `fun`.kirari.llm.core.ChatMessage(
+        role = "assistant",
+        content = buildJsonArray {
+            if (text.isNotBlank()) {
+                add(buildJsonObject {
+                    put("type", "output_text")
+                    put("text", text)
+                })
+            }
+        },
+        toolCalls = listOf(
+            `fun`.kirari.llm.core.ChatToolCall(
+                id = toolCallId,
+                function = `fun`.kirari.llm.core.ChatToolFunction(
+                    name = toolName,
+                    arguments = arguments.toString()
+                )
+            )
+        )
+    )
+
+private fun toolResultMessage(toolCallId: String, result: String): `fun`.kirari.llm.core.ChatMessage =
+    `fun`.kirari.llm.core.ChatMessage(
+        role = "tool",
+        toolCallId = toolCallId,
+        content = JsonPrimitive(result)
+    )
+
+private fun ProcessingPipeline.logMessages(
+    phase: String,
+    model: String,
+    messages: List<`fun`.kirari.llm.core.ChatMessage>
+) {
+    if (!AppDebugLogStore.verboseLlmEnabled) return
+    val summary = messages.joinToString(separator = "\n") { message ->
+        val toolCalls = message.toolCalls.joinToString { "${it.function.name}#${it.id}" }
+        val contentPreview = when (val content = message.content) {
+            is JsonPrimitive -> content.content.take(400)
+            else -> content?.toString().orEmpty().take(400)
+        }
+        "role=${message.role} toolCallId=${message.toolCallId.orEmpty()} toolCalls=${toolCalls.ifBlank { "-" }} content=${contentPreview}"
+    }
+    AppDebugLogStore.v(tag = "HanakoPipeline", message = "$phase messages model=$model count=${messages.size}\n$summary")
+}
 
 private fun automationSystemPrompt(userPrompt: String): String {
     val trimmed = userPrompt.trim()

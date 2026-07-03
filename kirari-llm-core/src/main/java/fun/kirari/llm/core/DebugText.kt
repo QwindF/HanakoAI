@@ -17,3 +17,11 @@ fun String.visibleWhitespaceForLog(maxLength: Int = 160): String {
     }
     return escaped
 }
+
+fun String.sanitizeForLog(): String {
+    val dataUrlRegex = Regex("data:image/[^;]+;base64,[A-Za-z0-9+/=]+")
+    return dataUrlRegex.replace(this) { match ->
+        val payload = match.value.substringAfter("base64,", "")
+        "data:image;base64<[${payload.length} chars]>"
+    }
+}
