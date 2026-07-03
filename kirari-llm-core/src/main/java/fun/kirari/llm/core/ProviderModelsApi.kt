@@ -13,7 +13,8 @@ data class RemoteModelOption(
     val id: String,
     val displayName: String = id,
     val pricePerTokenCredits: Double? = null,
-    val tag: String? = null
+    val tag: String? = null,
+    val recentTestResults: List<Boolean>? = null
 )
 
 data class ConnectionTestResult(
@@ -198,7 +199,10 @@ class ProviderModelsApi(
                     id = id,
                     displayName = display,
                     pricePerTokenCredits = modelObject["price_per_token_credits"]?.jsonPrimitive?.doubleOrNull,
-                    tag = modelObject["model_tag"]?.jsonPrimitive?.contentOrNull
+                    tag = modelObject["model_tag"]?.jsonPrimitive?.contentOrNull,
+                    recentTestResults = modelObject["recent_test_results"]?.jsonArray?.mapNotNull {
+                        it.jsonPrimitive.booleanOrNull
+                    }
                 )
             },
             usageSummary = usageSummary
@@ -214,6 +218,9 @@ class ProviderModelsApi(
 
     private val kotlinx.serialization.json.JsonPrimitive.doubleOrNull: Double?
         get() = contentOrNull?.toDoubleOrNull()
+
+    private val kotlinx.serialization.json.JsonPrimitive.booleanOrNull: Boolean?
+        get() = contentOrNull?.toBooleanStrictOrNull()
 
     private fun parseErrorMessage(body: String): String? {
         return runCatching {
