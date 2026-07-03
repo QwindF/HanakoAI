@@ -314,11 +314,15 @@ fun HanakoApp(viewModel: MainViewModel) {
                     )
                 }
                 composable(ROUTE_SETTINGS_WEB_SEARCH) {
+                    val webSearchQuotaState by viewModel.webSearchQuotaState.collectAsState()
                     WebSearchSettingsScreen(
                         webSearchSettings = settings.webSearch,
+                        webSearchQuotaState = webSearchQuotaState,
                         onUpdateWebSearchSettings = { transform ->
                             viewModel.updateWebSearchSettings(transform)
-                        }
+                        },
+                        onQueryWebSearchQuota = viewModel::queryWebSearchQuota,
+                        onResetWebSearchQuotaState = viewModel::resetWebSearchQuotaState
                     )
                 }
                 composable(ROUTE_SETTINGS_ASSISTANT) {
