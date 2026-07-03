@@ -2,7 +2,8 @@
 
 Hanako 是一个 Android 悬浮窗 AI 客户端，内置提示词支持的核心用途是搜题与快速作答，你也可以通过配置助手提示词配置成其他功能。  
 
-[[Download 0.0.11-alpha](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.11-alpha)]  
+[[Download 0.0.12-alpha](https://github.com/zyf2007/HanakoAI/releases/download/v0.0.12-alpha/app-lite-arm64-v8a-release.apk)]  [[View Release Notes](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.12-alpha)] [[Telegram](https://t.me/hutao_space)]
+
 
 Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可能短：
 
