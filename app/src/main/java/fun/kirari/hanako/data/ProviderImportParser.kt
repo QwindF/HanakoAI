@@ -1,11 +1,11 @@
 package `fun`.kirari.hanako.data
 
-import android.util.Base64
 import `fun`.kirari.llm.core.ProviderKind
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.util.Base64
 
 data class ImportedProviderConfig(
     val kind: ProviderKind,
@@ -44,7 +44,7 @@ private fun parseAiProvider(raw: String): ImportedProviderConfig? {
     if (!raw.startsWith(prefix)) return null
     val encoded = raw.removePrefix(prefix).trim()
     val decoded = runCatching {
-        String(Base64.decode(encoded, Base64.DEFAULT), Charsets.UTF_8)
+        String(Base64.getDecoder().decode(encoded), Charsets.UTF_8)
     }.getOrNull() ?: return null
     val root = runCatching { providerImportJson.parseToJsonElement(decoded).jsonObject }.getOrNull() ?: return null
     val apiKey = root["apiKey"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()

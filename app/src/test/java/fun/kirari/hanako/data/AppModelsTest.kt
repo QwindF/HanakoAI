@@ -2,6 +2,7 @@ package `fun`.kirari.hanako.data
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppModelsTest {
@@ -66,5 +67,165 @@ class AppModelsTest {
         assertEquals(2, normalized.assistants.size)
         assertEquals(problemSolving.id, normalized.selectedAssistantId)
         assertNotNull(normalized.assistants.firstOrNull { it.id == customized.id })
+    }
+
+    @Test
+    fun normalize_clampsAutomationValuesAndPrependsKirariScheme() {
+        val normalized = AppSettings(
+            automation = AutomationSettings(
+                autoModeTimeoutSeconds = 0,
+                bubbleAppearance = BubbleAppearanceSettings(
+                    bubbleDiameterDp = -1f,
+                    spinnerDiameterDp = 100f,
+                    letterTextSizeDp = 200f,
+                    letterOpacity = -5f,
+                    overallOpacity = 120f
+                )
+            ),
+            kirari = KirariSettings(serverUrl = "example.com")
+        ).normalize()
+
+        assertEquals(1, normalized.automation.autoModeTimeoutSeconds)
+        assertEquals(MIN_BUBBLE_DIAMETER_DP, normalized.automation.bubbleAppearance.bubbleDiameterDp, 0f)
+        assertEquals(MAX_SPINNER_DIAMETER_DP, normalized.automation.bubbleAppearance.spinnerDiameterDp, 0f)
+        assertEquals(MAX_BUBBLE_LETTER_TEXT_SIZE_DP, normalized.automation.bubbleAppearance.letterTextSizeDp, 0f)
+        assertEquals(0f, normalized.automation.bubbleAppearance.letterOpacity, 0f)
+        assertEquals(100f, normalized.automation.bubbleAppearance.overallOpacity, 0f)
+        assertEquals("http://example.com", normalized.kirari.serverUrl)
+    }
+
+    @Test
+    fun normalize_repairsBlankSelectionsForExistingProvider() {
+        val provider = ModelProviderConfig(
+            id = "provider-1",
+            name = "P1",
+            chatModel = "chat-1",
+            visionModel = "vision-1",
+            ocrModel = "ocr-1"
+        )
+
+        val normalized = AppSettings(
+            providers = listOf(provider),
+            selectedProviderId = provider.id,
+            textModelSelection = ModelSelection(providerId = provider.id, model = ""),
+            visionModelSelection = ModelSelection(providerId = provider.id, model = ""),
+            ocrModelSelection = ModelSelection(providerId = provider.id, model = "")
+        ).normalize()
+
+        assertEquals(provider.id, normalized.selectedProviderId)
+        assertEquals(ModelSelection(provider.id, "chat-1"), normalized.textModelSelection)
+        assertEquals(ModelSelection(provider.id, "vision-1"), normalized.visionModelSelection)
+        assertEquals(ModelSelection(provider.id, "ocr-1"), normalized.ocrModelSelection)
+    }
+
+    @Test
+    fun normalize_invalidSelectedProviderFallsBackToFirstAvailableProvider() {
+        val provider = ModelProviderConfig(id = "provider-1", name = "P1")
+
+        val normalized = AppSettings(
+            providers = listOf(provider),
+            selectedProviderId = "missing"
+        ).normalize()
+
+        assertEquals(KIRARI_PROVIDER_ID, normalized.selectedProviderId)
+    }
+
+    @Test
+    fun normalize_preservesLocalOcrSelectionAndAssignsDefaultModelId() {
+        val normalized = AppSettings(
+            ocrModelSelection = ModelSelection(providerId = LOCAL_OCR_PROVIDER_ID, model = "")
+        ).normalize()
+
+        assertEquals(LOCAL_OCR_PROVIDER_ID, normalized.ocrModelSelection.providerId)
+        assertEquals(LOCAL_OCR_MODEL_ID, normalized.ocrModelSelection.model)
+    }
+
+    @Test
+    fun availableProviders_includesKirariProviderWhenEnabled() {
+        val providers = AppSettings().availableProviders()
+
+        assertTrue(providers.isNotEmpty())
+        assertEquals(KIRARI_PROVIDER_ID, providers.first().id)
+    }
+
+    @Test
+    fun processingResult_allScreenshotPaths_prefersListButFallsBackToSinglePath() {
+        val withSingle = ProcessingResult(
+            assistantName = "助手",
+            route = ProcessingRoute.OCR_THEN_LLM,
+            screenshotPath = "/tmp/a.jpg"
+        )
+        val withList = ProcessingResult(
+            assistantName = "助手",
+            route = ProcessingRoute.OCR_THEN_LLM,
+            screenshotPath = "/tmp/a.jpg",
+            screenshotPaths = listOf("/tmp/b.jpg", "/tmp/c.jpg")
+        )
+
+        assertEquals(listOf("/tmp/a.jpg"), withSingle.allScreenshotPaths)
+        assertEquals(listOf("/tmp/b.jpg", "/tmp/c.jpg"), withList.allScreenshotPaths)
+    }
+
+    @Test
+    fun assistantPreviewPrompt_prefersTextThenVisionThenOcr() {
+        val withText = AssistantPreset(
+            name = "A",
+            ocrPrompt = "ocr",
+            textPrompt = "text",
+            visionPrompt = "vision"
+        )
+        val withVision = AssistantPreset(
+            name = "B",
+            ocrPrompt = "ocr",
+            textPrompt = "",
+            visionPrompt = "vision"
+        )
+        val withOcr = AssistantPreset(
+            name = "C",
+            ocrPrompt = "ocr",
+            textPrompt = "",
+            visionPrompt = ""
+        )
+
+        assertEquals("text", withText.previewPrompt())
+        assertEquals("vision", withVision.previewPrompt())
+        assertEquals("ocr", withOcr.previewPrompt())
+    }
+
+    @Test
+    fun requestPreviewUrl_usesProviderSpecificSuffixAndTrimsTrailingSlash() {
+        val openAi = ModelProviderConfig(
+            kind = `fun`.kirari.llm.core.ProviderKind.OPENAI_COMPATIBLE,
+            baseUrl = "https://example.com/v1/"
+        )
+        val google = ModelProviderConfig(
+            kind = `fun`.kirari.llm.core.ProviderKind.GOOGLE,
+            baseUrl = "https://googleapis.com/v1beta/"
+        )
+
+        assertEquals("https://example.com/v1/chat/completions", openAi.requestPreviewUrl())
+        assertEquals("https://googleapis.com/v1beta/models", google.requestPreviewUrl())
+    }
+
+    @Test
+    fun modelSelectionHelpers_coverLocalOcrAndRemoteProviders() {
+        val provider = ModelProviderConfig(id = "provider-1", name = "P1")
+        val remoteSettings = AppSettings(
+            providers = listOf(provider),
+            ocrModelSelection = ModelSelection(providerId = provider.id, model = "ocr-remote")
+        )
+        val localSettings = AppSettings(
+            providers = listOf(provider),
+            localOcr = LocalOcrSettings(displayName = "本地 OCR"),
+            ocrModelSelection = ModelSelection(providerId = LOCAL_OCR_PROVIDER_ID, model = "")
+        )
+
+        assertEquals(false, remoteSettings.ocrModelSelection.isLocalOcrSelection())
+        assertEquals(provider.id, remoteSettings.resolveModelProvider(ModelPurpose.OCR)?.id)
+        assertEquals("ocr-remote", remoteSettings.resolveModelName(ModelPurpose.OCR))
+
+        assertEquals(true, localSettings.ocrModelSelection.isLocalOcrSelection())
+        assertEquals(null, localSettings.resolveModelProvider(ModelPurpose.OCR))
+        assertEquals("本地 OCR", localSettings.resolveModelName(ModelPurpose.OCR))
     }
 }
