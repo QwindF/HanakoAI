@@ -24,13 +24,13 @@ internal class HanakoWorkflowFactory(
     private val searchOrchestrator: SearchOrchestrator?,
     private val pipeline: ProcessingPipeline,
     private val workflowRunner: WorkflowRunner = WorkflowRunner()
-) {
+) : HanakoWorkflowEngine {
     private val capturePersistNode = CapturePersistNode(appContext)
 
-    suspend fun prepareBaseResult(
+    override suspend fun prepareBaseResult(
         models: ProcessingPipeline.ResolvedModels,
         bitmaps: List<Bitmap>,
-        detail: String = "请求已开始"
+        detail: String
     ): Pair<ProcessingResult, CapturedImages> {
         val workflowId = java.util.UUID.randomUUID().toString()
         val workflowContext = WorkflowContext(workflowId = workflowId)
@@ -53,11 +53,11 @@ internal class HanakoWorkflowFactory(
         return baseResult to captured
     }
 
-    fun prepareRegenerationBaseResult(
+    override fun prepareRegenerationBaseResult(
         existingResult: ProcessingResult,
         models: ProcessingPipeline.ResolvedModels,
         bitmaps: List<Bitmap>,
-        detail: String = "正在重新生成"
+        detail: String
     ): Pair<ProcessingResult, CapturedImages> {
         val capturedImages = CapturedImages(
             historyId = existingResult.id,
@@ -83,7 +83,7 @@ internal class HanakoWorkflowFactory(
         return baseResult to capturedImages
     }
 
-    suspend fun runAnswerWorkflow(
+    override suspend fun runAnswerWorkflow(
         models: ProcessingPipeline.ResolvedModels,
         capturedImages: CapturedImages,
         onOcrDelta: suspend (String) -> Unit,
@@ -141,7 +141,7 @@ internal class HanakoWorkflowFactory(
         )
     }
 
-    suspend fun runAutomationWorkflow(
+    override suspend fun runAutomationWorkflow(
         models: ProcessingPipeline.ResolvedModels,
         capturedImages: CapturedImages,
         onOcrDelta: suspend (String) -> Unit,
@@ -198,7 +198,7 @@ internal class HanakoWorkflowFactory(
         )
     }
 
-    fun buildAnswerResult(
+    override fun buildAnswerResult(
         base: ProcessingResult,
         models: ProcessingPipeline.ResolvedModels,
         output: AnswerWorkflowOutput,
@@ -224,7 +224,7 @@ internal class HanakoWorkflowFactory(
         )
     }
 
-    fun buildAutomationResult(
+    override fun buildAutomationResult(
         base: ProcessingResult,
         models: ProcessingPipeline.ResolvedModels,
         output: AutomationWorkflowOutput,

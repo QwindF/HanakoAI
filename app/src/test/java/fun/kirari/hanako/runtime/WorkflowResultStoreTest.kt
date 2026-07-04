@@ -2,7 +2,6 @@ package `fun`.kirari.hanako.runtime
 
 import `fun`.kirari.hanako.data.AppSettings
 import `fun`.kirari.hanako.data.ProcessingResult
-import `fun`.kirari.hanako.data.ProcessingRoute
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -22,7 +21,7 @@ class WorkflowResultStoreTest {
             scope = TestScope(testScheduler),
             persistDelayMillis = 250L
         )
-        val base = result(id = "history-1")
+        val base = testProcessingResult(id = "history-1")
 
         store.upsert(base)
         assertEquals("", repository.settings.history.single().answer)
@@ -41,7 +40,9 @@ class WorkflowResultStoreTest {
     @Test
     fun latest_prefersLiveResultOverPersistedHistory() = runTest {
         val repository = InMemoryWorkflowHistoryRepository(
-            AppSettings(history = listOf(result(id = "history-1", answer = "persisted")))
+            AppSettings(
+                history = listOf(testProcessingResult(id = "history-1", answer = "persisted"))
+            )
         )
         val store = WorkflowResultStore(
             repository = repository,
@@ -49,7 +50,7 @@ class WorkflowResultStoreTest {
             persistDelayMillis = 250L
         )
 
-        store.upsert(result(id = "history-1", answer = "live"))
+        store.upsert(testProcessingResult(id = "history-1", answer = "live"))
 
         assertEquals("live", store.latest("history-1")?.answer)
     }
@@ -62,7 +63,7 @@ class WorkflowResultStoreTest {
             scope = TestScope(testScheduler),
             persistDelayMillis = 250L
         )
-        val base = result(id = "history-1")
+        val base = testProcessingResult(id = "history-1")
 
         store.upsert(base)
         store.update(base.id) { it.copy(answer = "streamed") }
@@ -84,8 +85,8 @@ class WorkflowResultStoreTest {
             scope = TestScope(testScheduler),
             persistDelayMillis = 250L
         )
-        val first = result(id = "history-1")
-        val second = result(id = "history-2")
+        val first = testProcessingResult(id = "history-1")
+        val second = testProcessingResult(id = "history-2")
 
         store.upsert(first)
         store.upsert(second)
@@ -111,12 +112,12 @@ class WorkflowResultStoreTest {
             persistDelayMillis = 250L
         )
         val persisted = listOf(
-            result(id = "persisted", answer = "old"),
-            result(id = "other", answer = "other")
+            testProcessingResult(id = "persisted", answer = "old"),
+            testProcessingResult(id = "other", answer = "other")
         )
 
-        store.upsert(result(id = "persisted", answer = "live"))
-        store.upsert(result(id = "live-only", answer = "new"))
+        store.upsert(testProcessingResult(id = "persisted", answer = "live"))
+        store.upsert(testProcessingResult(id = "live-only", answer = "new"))
 
         val merged = store.mergedWith(persisted)
 
@@ -124,28 +125,4 @@ class WorkflowResultStoreTest {
         assertEquals("live", merged.first { it.id == "persisted" }.answer)
     }
 
-    private fun result(
-        id: String,
-        answer: String = ""
-    ): ProcessingResult {
-        return ProcessingResult(
-            id = id,
-            assistantName = "assistant",
-            route = ProcessingRoute.OCR_THEN_LLM,
-            answer = answer
-        )
-    }
-}
-
-private class InMemoryWorkflowHistoryRepository(
-    initialSettings: AppSettings = AppSettings()
-) : WorkflowHistoryRepository {
-    var settings: AppSettings = initialSettings
-        private set
-
-    override suspend fun read(): AppSettings = settings
-
-    override suspend fun update(transform: (AppSettings) -> AppSettings) {
-        settings = transform(settings)
-    }
 }

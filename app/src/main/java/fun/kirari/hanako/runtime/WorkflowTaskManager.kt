@@ -10,7 +10,7 @@ import `fun`.kirari.hanako.data.displayedAnswerVersions
 import `fun`.kirari.hanako.debug.AppDebugLogStore
 import `fun`.kirari.hanako.overlay.OverlayUiState
 import `fun`.kirari.hanako.overlay.ProcessingPipeline
-import `fun`.kirari.hanako.overlay.workflow.HanakoWorkflowFactory
+import `fun`.kirari.hanako.overlay.workflow.HanakoWorkflowEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -52,7 +52,7 @@ internal data class WorkflowAutomationResult(
 internal class WorkflowTaskManager(
     private val repository: WorkflowHistoryRepository,
     private val resultStore: WorkflowResultStore,
-    private val workflowFactory: HanakoWorkflowFactory,
+    private val workflowFactory: HanakoWorkflowEngine,
     private val scope: CoroutineScope,
     private val processingTimeoutMillis: Long = 90_000L
 ) {
