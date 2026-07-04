@@ -13,12 +13,8 @@ import `fun`.kirari.hanako.overlay.ProcessingPipeline
 import `fun`.kirari.hanako.overlay.workflow.HanakoWorkflowEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
@@ -52,20 +48,17 @@ internal data class WorkflowAutomationResult(
 internal class WorkflowTaskManager(
     private val repository: WorkflowHistoryRepository,
     private val resultStore: WorkflowResultStore,
+    private val taskRegistry: WorkflowTaskRegistry,
     private val workflowFactory: HanakoWorkflowEngine,
     private val scope: CoroutineScope,
     private val processingTimeoutMillis: Long = 90_000L
 ) {
     private val tag = "HanakoWorkflowTasks"
-    private val jobs = mutableMapOf<String, Job>()
-    private val _tasks = MutableStateFlow<Map<String, WorkflowTaskState>>(emptyMap())
-    val tasks: StateFlow<Map<String, WorkflowTaskState>> = _tasks.asStateFlow()
+    val tasks: StateFlow<Map<String, WorkflowTaskState>> = taskRegistry.tasks
     val liveResults: StateFlow<Map<String, ProcessingResult>> = resultStore.liveResults
 
     fun isRunning(historyId: String): Boolean {
-        return _tasks.value.values.any {
-            it.historyId == historyId && it.status == WorkflowTaskStatus.RUNNING
-        }
+        return taskRegistry.isRunning(historyId)
     }
 
     fun startAnswerTask(
@@ -83,7 +76,7 @@ internal class WorkflowTaskManager(
                 withTimeout(processingTimeoutMillis) {
                     val (preparedBaseResult, capturedImages) = workflowFactory.prepareBaseResult(models, bitmaps)
                     baseResult = preparedBaseResult
-                    registerTask(taskId, preparedBaseResult.id, WorkflowTaskKind.ANSWER)
+                    taskRegistry.register(taskId, preparedBaseResult.id, WorkflowTaskKind.ANSWER)
                     resultStore.upsert(preparedBaseResult)
                     onStateChanged(preparedBaseResult)
 
@@ -123,12 +116,12 @@ internal class WorkflowTaskManager(
             }.onSuccess { result ->
                 AppDebugLogStore.i(tag, "answer task success taskId=$taskId historyId=${result.id}")
                 resultStore.upsert(result)
-                markTask(taskId, WorkflowTaskStatus.SUCCESS)
+                taskRegistry.mark(taskId, WorkflowTaskStatus.SUCCESS)
                 onStateChanged(result)
                 onFinished(Result.success(result))
             }.onFailure { error ->
                 if (error is CancellationException) {
-                    markTask(taskId, WorkflowTaskStatus.CANCELLED)
+                    taskRegistry.mark(taskId, WorkflowTaskStatus.CANCELLED)
                     return@onFailure
                 }
                 AppDebugLogStore.e(tag, "answer task failed taskId=$taskId", error)
@@ -137,11 +130,11 @@ internal class WorkflowTaskManager(
                     resultStore.upsert(failed)
                     onStateChanged(failed)
                 }
-                markTask(taskId, WorkflowTaskStatus.ERROR, error.message)
+                taskRegistry.mark(taskId, WorkflowTaskStatus.ERROR, error.message)
                 onFinished(Result.failure(error))
             }
         }
-        trackJob(taskId, job)
+        taskRegistry.trackJob(taskId, job)
         return taskId
     }
 
@@ -166,7 +159,7 @@ internal class WorkflowTaskManager(
             )
             val startedResult = baseResult.withStartedAnswerVersionFrom(existingResult)
             val versionIndex = startedResult.answerVersions.lastIndex
-            registerTask(taskId, historyId, WorkflowTaskKind.REGENERATE_ANSWER, versionIndex)
+            taskRegistry.register(taskId, historyId, WorkflowTaskKind.REGENERATE_ANSWER, versionIndex)
             resultStore.upsert(startedResult)
             onStateChanged(startedResult)
 
@@ -217,23 +210,23 @@ internal class WorkflowTaskManager(
             }.onSuccess { regenerated ->
                 AppDebugLogStore.i(tag, "regenerate task success taskId=$taskId historyId=$historyId")
                 resultStore.upsert(regenerated)
-                markTask(taskId, WorkflowTaskStatus.SUCCESS)
+                taskRegistry.mark(taskId, WorkflowTaskStatus.SUCCESS)
                 onStateChanged(regenerated)
                 onFinished(Result.success(regenerated))
             }.onFailure { error ->
                 if (error is CancellationException) {
-                    markTask(taskId, WorkflowTaskStatus.CANCELLED)
+                    taskRegistry.mark(taskId, WorkflowTaskStatus.CANCELLED)
                     return@onFailure
                 }
                 AppDebugLogStore.e(tag, "regenerate task failed taskId=$taskId historyId=$historyId", error)
                 val failed = failureResult(startedResult, error)
                 resultStore.upsert(failed)
-                markTask(taskId, WorkflowTaskStatus.ERROR, error.message)
+                taskRegistry.mark(taskId, WorkflowTaskStatus.ERROR, error.message)
                 onStateChanged(failed)
                 onFinished(Result.failure(error))
             }
         }
-        trackJob(taskId, job)
+        taskRegistry.trackJob(taskId, job)
         return taskId
     }
 
@@ -256,7 +249,7 @@ internal class WorkflowTaskManager(
                         detail = "自动流程已开始"
                     )
                     baseResult = preparedBaseResult
-                    registerTask(taskId, preparedBaseResult.id, WorkflowTaskKind.AUTOMATION)
+                    taskRegistry.register(taskId, preparedBaseResult.id, WorkflowTaskKind.AUTOMATION)
                     resultStore.upsert(preparedBaseResult)
                     onStateChanged(preparedBaseResult)
 
@@ -293,12 +286,12 @@ internal class WorkflowTaskManager(
             }.onSuccess { automationResult ->
                 AppDebugLogStore.i(tag, "automation task success taskId=$taskId historyId=${automationResult.result.id}")
                 resultStore.upsert(automationResult.result)
-                markTask(taskId, WorkflowTaskStatus.SUCCESS)
+                taskRegistry.mark(taskId, WorkflowTaskStatus.SUCCESS)
                 onStateChanged(automationResult.result)
                 onFinished(Result.success(automationResult))
             }.onFailure { error ->
                 if (error is CancellationException) {
-                    markTask(taskId, WorkflowTaskStatus.CANCELLED)
+                    taskRegistry.mark(taskId, WorkflowTaskStatus.CANCELLED)
                     return@onFailure
                 }
                 AppDebugLogStore.e(tag, "automation task failed taskId=$taskId", error)
@@ -307,23 +300,20 @@ internal class WorkflowTaskManager(
                     resultStore.upsert(failed)
                     onStateChanged(failed)
                 }
-                markTask(taskId, WorkflowTaskStatus.ERROR, error.message)
+                taskRegistry.mark(taskId, WorkflowTaskStatus.ERROR, error.message)
                 onFinished(Result.failure(error))
             }
         }
-        trackJob(taskId, job)
+        taskRegistry.trackJob(taskId, job)
         return taskId
     }
 
     fun cancelTask(taskId: String) {
-        jobs.remove(taskId)?.cancel()
-        markTask(taskId, WorkflowTaskStatus.CANCELLED)
+        taskRegistry.cancelTask(taskId)
     }
 
     suspend fun cancelHistoryTask(historyId: String) {
-        _tasks.value.values
-            .filter { it.historyId == historyId && it.status == WorkflowTaskStatus.RUNNING }
-            .forEach { cancelTask(it.taskId) }
+        taskRegistry.cancelRunningHistoryTasks(historyId)
     }
 
     suspend fun removeHistoryResult(historyId: String) {
@@ -338,47 +328,13 @@ internal class WorkflowTaskManager(
     }
 
     suspend fun clearHistory() {
-        jobs.keys.toList().forEach(::cancelTask)
-        _tasks.value.values
-            .filter { it.status == WorkflowTaskStatus.RUNNING }
-            .forEach { markTask(it.taskId, WorkflowTaskStatus.CANCELLED) }
+        taskRegistry.cancelAll()
         resultStore.clear()
         repository.update { it.copy(history = emptyList(), lastResult = null) }
     }
 
     fun mergedHistory(persisted: List<ProcessingResult>): List<ProcessingResult> {
         return resultStore.mergedWith(persisted)
-    }
-
-    private fun registerTask(
-        taskId: String,
-        historyId: String,
-        kind: WorkflowTaskKind,
-        answerVersionIndex: Int? = null
-    ) {
-        _tasks.update {
-            it + (taskId to WorkflowTaskState(
-                taskId = taskId,
-                historyId = historyId,
-                kind = kind,
-                answerVersionIndex = answerVersionIndex
-            ))
-        }
-    }
-
-    private fun markTask(taskId: String, status: WorkflowTaskStatus, errorMessage: String? = null) {
-        _tasks.update { current ->
-            current[taskId]?.let { task ->
-                current + (taskId to task.copy(status = status, errorMessage = errorMessage))
-            } ?: current
-        }
-    }
-
-    private fun trackJob(taskId: String, job: Job) {
-        jobs[taskId] = job
-        job.invokeOnCompletion {
-            if (jobs[taskId] === job) jobs.remove(taskId)
-        }
     }
 
     private fun failureResult(base: ProcessingResult, error: Throwable): ProcessingResult {

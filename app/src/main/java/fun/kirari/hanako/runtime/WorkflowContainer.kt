@@ -32,9 +32,11 @@ internal class WorkflowContainer(
         repository = historyRepository,
         scope = scope
     )
+    val taskRegistry = WorkflowTaskRegistry()
     val taskManager = WorkflowTaskManager(
         repository = historyRepository,
         resultStore = resultStore,
+        taskRegistry = taskRegistry,
         workflowFactory = workflowFactory,
         scope = scope
     )

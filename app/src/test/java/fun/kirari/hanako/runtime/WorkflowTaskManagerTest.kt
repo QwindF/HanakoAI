@@ -135,9 +135,11 @@ private class ManagerHarness(
         persistDelayMillis = 250L
     )
     val engine = FakeHanakoWorkflowEngine()
+    val taskRegistry = WorkflowTaskRegistry()
     val manager = WorkflowTaskManager(
         repository = repository,
         resultStore = resultStore,
+        taskRegistry = taskRegistry,
         workflowFactory = engine,
         scope = testScope,
         processingTimeoutMillis = 90_000L
