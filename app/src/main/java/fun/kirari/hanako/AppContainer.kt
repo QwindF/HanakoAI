@@ -11,6 +11,7 @@ import `fun`.kirari.hanako.network.UnifiedLLMClient
 import `fun`.kirari.hanako.network.search.SearchClientImpl
 import `fun`.kirari.hanako.network.search.SearchOrchestrator
 import `fun`.kirari.hanako.network.search.TavilyUsageApi
+import `fun`.kirari.hanako.runtime.WorkflowContainer
 
 internal class AppContainer(appContext: Context) {
     val networkClientProvider = NetworkClientProvider()
@@ -33,4 +34,11 @@ internal class AppContainer(appContext: Context) {
     val settingsRepository = SettingsRepository(settingsStore)
     val searchOrchestrator = SearchOrchestrator(SearchClientImpl(networkClientProvider))
     val tavilyUsageApi = TavilyUsageApi(networkClientProvider)
+    val workflow = WorkflowContainer(
+        appContext = appContext,
+        settingsRepository = settingsRepository,
+        unifiedLLMClient = unifiedLLMClient,
+        localOcrManager = localOcrManager,
+        searchOrchestrator = searchOrchestrator
+    )
 }

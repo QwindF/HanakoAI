@@ -26,6 +26,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,11 +38,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.copyToClipboardWithToast
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
+import `fun`.kirari.hanako.data.displayedAnswerVersions
+import `fun`.kirari.hanako.data.latestAnswerText
 import `fun`.kirari.hanako.data.decodeHistoryBitmap
 import `fun`.kirari.hanako.data.loadHistoryBitmap
 import `fun`.kirari.hanako.overlay.MarkdownLatexText
@@ -49,12 +51,20 @@ import `fun`.kirari.hanako.ui.components.ImagePreviewOverlay
 import kotlin.math.roundToInt
 
 @Composable
-fun HistoryDetailScreen(result: ProcessingResult?) {
+fun HistoryDetailScreen(
+    result: ProcessingResult?,
+    regenerating: Boolean = false,
+    runningAnswerVersionIndex: Int? = null,
+    onRegenerate: ((ProcessingResult) -> Unit)? = null
+) {
     if (result == null) {
         MissingHistoryDetail()
         return
     }
 
+    val answerVersions = remember(result.id, result.answerVersions, result.answer) {
+        result.displayedAnswerVersions()
+    }
     val screenshots = remember(result.allScreenshotPaths, result.screenshotBase64) {
         val bitmaps = result.allScreenshotPaths.mapNotNull { it.loadHistoryBitmap() }.toMutableList()
         if (bitmaps.isEmpty()) {
@@ -65,6 +75,18 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
     val context = LocalContext.current
     var previewImageIndex by remember { mutableStateOf(-1) }
     var imageBounds by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    var currentVersionIndex by remember(result.id, answerVersions.size) {
+        mutableStateOf((answerVersions.size - 1).coerceAtLeast(0))
+    }
+    var switchDirection by remember { mutableStateOf(AnswerSwitchDirection.NONE) }
+    LaunchedEffect(regenerating, runningAnswerVersionIndex, answerVersions.size) {
+        if (regenerating && answerVersions.isNotEmpty()) {
+            currentVersionIndex = runningAnswerVersionIndex
+                ?.coerceIn(0, answerVersions.lastIndex)
+                ?: answerVersions.lastIndex
+        }
+    }
+    val displayedAnswer = answerVersions.getOrNull(currentVersionIndex)?.text ?: result.latestAnswerText()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -112,11 +134,6 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
                 }
             }
         }
-        if (result.events.isNotEmpty()) {
-            item {
-                HistoryEventsCard(nonSearchEvents(result.events))
-            }
-        }
         if (result.automationAction != null || result.automationThought.isNotBlank()) {
             item {
                 HistoryResultCard(title = "思考过程") {
@@ -147,11 +164,28 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
                 HistoryResultCard(
                     title = "答案",
                     action = {
-                        CopyTextButton(
-                            enabled = result.answer.isNotBlank(),
-                            label = "复制原文",
-                            onClick = {
-                                copyToClipboardWithToast(context, "Hanako 原始答案", result.answer, "已复制原文")
+                        AnswerActionBar(
+                            versionCount = answerVersions.size,
+                            currentVersionIndex = currentVersionIndex,
+                            canRegenerate = onRegenerate != null,
+                            regenerating = regenerating,
+                            onPreviousVersion = {
+                                if (currentVersionIndex > 0) {
+                                    switchDirection = AnswerSwitchDirection.PREVIOUS
+                                    currentVersionIndex -= 1
+                                }
+                            },
+                            onNextVersion = {
+                                if (currentVersionIndex < answerVersions.lastIndex) {
+                                    switchDirection = AnswerSwitchDirection.NEXT
+                                    currentVersionIndex += 1
+                                }
+                            },
+                            onCopy = {
+                                copyToClipboardWithToast(context, "Hanako 原始答案", displayedAnswer, "已复制原文")
+                            },
+                            onRegenerate = {
+                                onRegenerate?.invoke(result)
                             }
                         )
                     }
@@ -164,7 +198,16 @@ fun HistoryDetailScreen(result: ProcessingResult?) {
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
                     }
-                    HistoryMarkdownOrEmpty(result.answer)
+                    if (regenerating) {
+                        HistoryMarkdownOrEmpty(displayedAnswer)
+                    } else {
+                        AnimatedAnswerVersionContent(
+                            text = displayedAnswer,
+                            direction = switchDirection
+                        ) { currentText ->
+                            HistoryMarkdownOrEmpty(currentText)
+                        }
+                    }
                 }
             }
         }
@@ -259,27 +302,6 @@ private fun HistoryScreenshots(
 }
 
 @Composable
-private fun HistoryEventsCard(events: List<`fun`.kirari.hanako.data.ProcessingEvent>) {
-    if (events.isEmpty()) return
-    HistoryResultCard(title = "处理步骤") {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            events.forEach { event ->
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(event.title, fontWeight = FontWeight.SemiBold)
-                    if (event.detail.isNotBlank()) {
-                        Text(
-                            event.detail,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun HistoryMarkdownOrEmpty(content: String) {
     if (content.isNotBlank()) {
         MarkdownLatexText(
@@ -290,9 +312,6 @@ private fun HistoryMarkdownOrEmpty(content: String) {
         Text("暂无内容")
     }
 }
-
-private fun nonSearchEvents(events: List<`fun`.kirari.hanako.data.ProcessingEvent>): List<`fun`.kirari.hanako.data.ProcessingEvent> =
-    events.filterNot { it.title.startsWith("联网搜索") || it.title == "正在联网搜索" }
 
 private fun searchStatusText(events: List<`fun`.kirari.hanako.data.ProcessingEvent>): String? {
     val searchEvent = events.lastOrNull { it.title == "正在联网搜索" || it.title == "联网搜索完成" } ?: return null

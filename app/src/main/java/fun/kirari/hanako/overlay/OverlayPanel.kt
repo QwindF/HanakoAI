@@ -53,7 +53,8 @@ internal fun OverlayPanel(
             ResultOverlaySheet(
                 uiState = uiState,
                 onClose = onDismiss,
-                panelHeightPx = panelHeightPx
+                panelHeightPx = panelHeightPx,
+                onRegenerate = viewModel::regenerateCurrentResult
             )
         }
     }

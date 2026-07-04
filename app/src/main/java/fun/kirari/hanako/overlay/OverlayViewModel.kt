@@ -11,31 +11,28 @@ import `fun`.kirari.hanako.automation.BubbleMenuItem
 import `fun`.kirari.hanako.automation.BubbleState
 import `fun`.kirari.hanako.automation.BubbleStateMachine
 import `fun`.kirari.hanako.data.ModelPurpose
-import `fun`.kirari.hanako.data.ProcessingEvent
+import `fun`.kirari.hanako.data.ModelSelection
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
-import `fun`.kirari.hanako.data.ProcessingStatus
-import `fun`.kirari.hanako.data.ModelSelection
 import `fun`.kirari.hanako.data.SettingsRepository
+import `fun`.kirari.hanako.data.loadHistoryBitmaps
 import `fun`.kirari.hanako.debug.AppDebugLogStore
-import `fun`.kirari.hanako.localocr.LocalOcrManager
 import `fun`.kirari.hanako.network.ProviderModelsApi
+import `fun`.kirari.hanako.runtime.WorkflowTaskManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 
 internal class OverlayViewModel(
     private val appContext: Context,
     private val repository: SettingsRepository,
     private val pipeline: ProcessingPipeline,
+    private val workflowTaskManager: WorkflowTaskManager,
     val providerModelsApi: ProviderModelsApi
 ) : ViewModel() {
     private val tag = "HanakoOverlayVM"
-    private val processingTimeoutMillis = 90_000L
     
     // 新的状态机
     val bubbleStateMachine = BubbleStateMachine()
@@ -53,10 +50,8 @@ internal class OverlayViewModel(
         scope = viewModelScope,
         uiState = _uiState,
         pipeline = pipeline,
-        bubbleStateMachine = bubbleStateMachine,
-        processingTimeoutMillis = processingTimeoutMillis,
-        upsertHistory = ::upsertHistory,
-        handleError = ::handleError
+        workflowTaskManager = workflowTaskManager,
+        bubbleStateMachine = bubbleStateMachine
     )
 
     init {
@@ -150,112 +145,133 @@ internal class OverlayViewModel(
             _uiState.update { it.copy(error = error.message) }
             return
         }
-        val (baseResult, historyId, screenshotPaths) = pipeline.createBaseResult(models, bitmaps, "请求已开始")
 
-        viewModelScope.launch {
-            val progressEvents = mutableListOf<ProcessingEvent>()
-            _uiState.update {
-                it.copy(
-                    selectedBitmap = firstBitmap,
-                    liveOcrText = "",
-                    liveAnswerText = "",
-                    result = null,
-                    error = null,
-                    working = true,
-                    sheetVisible = true,
-                    sheetMode = OverlaySheetMode.RESULT
-                )
-            }
-            upsertHistory(baseResult)
-            runCatching {
-                withTimeout(processingTimeoutMillis) {
-                    when (models.route) {
-                        ProcessingRoute.OCR_THEN_LLM -> {
-                            pipeline.validateOcrThenLlmModels(models)
-                            val (ocrText, answer, searchOutcome) = pipeline.streamOcrThenChat(
-                                models = models,
-                                bitmaps = bitmaps,
-                                onOcrDelta = { delta ->
-                                    _uiState.update { current -> current.copy(liveOcrText = current.liveOcrText + delta) }
-                                },
-                                onAnswerDelta = { delta ->
-                                    _uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
-                                },
-                                onSearchEvent = { event ->
-                                    progressEvents.add(event)
-                                    val progressResult = baseResult.copy(
-                                        extractedText = _uiState.value.liveOcrText,
-                                        answer = _uiState.value.liveAnswerText,
-                                        events = baseResult.events + progressEvents
-                                    )
-                                    upsertHistory(progressResult)
-                                    _uiState.update { current -> current.copy(result = progressResult) }
-                                }
-                            )
-                            pipeline.buildChatResult(
-                                baseResult,
-                                models,
-                                ocrText,
-                                answer,
-                                historyId,
-                                screenshotPaths,
-                                searchOutcome,
-                                progressEvents
-                            )
-                        }
-
-                        ProcessingRoute.MULTIMODAL_DIRECT -> {
-                            pipeline.validateVisionModels(models)
-                            val (answer, searchOutcome) = pipeline.streamVisionDirect(
-                                models = models,
-                                bitmaps = bitmaps,
-                                onAnswerDelta = { delta ->
-                                    _uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
-                                },
-                                onSearchEvent = { event ->
-                                    progressEvents.add(event)
-                                    val progressResult = baseResult.copy(
-                                        extractedText = _uiState.value.liveOcrText,
-                                        answer = _uiState.value.liveAnswerText,
-                                        events = baseResult.events + progressEvents
-                                    )
-                                    upsertHistory(progressResult)
-                                    _uiState.update { current -> current.copy(result = progressResult) }
-                                }
-                            )
-                            pipeline.buildChatResult(
-                                baseResult,
-                                models,
-                                "",
-                                answer,
-                                historyId,
-                                screenshotPaths,
-                                searchOutcome,
-                                progressEvents
-                            )
-                        }
-                    }
-                }
-            }.onSuccess { result ->
-                AppDebugLogStore.i(tag, "process success resultId=${result.id} answerLength=${result.answer.length}")
-                upsertHistory(result)
-                _uiState.update {
-                    it.copy(
-                        working = false,
+        _uiState.update {
+            it.copy(
+                selectedBitmap = firstBitmap,
+                liveOcrText = "",
+                liveAnswerText = "",
+                result = null,
+                error = null,
+                working = true,
+                sheetVisible = true,
+                sheetMode = OverlaySheetMode.RESULT
+            )
+        }
+        workflowTaskManager.startAnswerTask(
+            models = models,
+            bitmaps = bitmaps,
+            onStateChanged = { result ->
+                _uiState.update { current ->
+                    current.copy(
                         result = result,
                         liveOcrText = result.extractedText,
-                        liveAnswerText = result.answer,
-                        autoRunState = AutoRunState.IDLE,
-                        autoCopiedLabel = null,
-                        pendingVibrationLetters = null
+                        liveAnswerText = result.answer
                     )
                 }
-                bubbleStateMachine.forceState(BubbleState.Idle)
-            }.onFailure { error ->
-                AppDebugLogStore.e(tag, "process failed", error)
-                handleError(error, baseResult)
+            },
+            onFinished = { outcome ->
+                outcome.onSuccess { result ->
+                    AppDebugLogStore.i(tag, "process success resultId=${result.id} answerLength=${result.answer.length}")
+                    _uiState.update {
+                        it.copy(
+                            working = false,
+                            result = result,
+                            liveOcrText = result.extractedText,
+                            liveAnswerText = result.answer,
+                            autoRunState = AutoRunState.IDLE,
+                            autoCopiedLabel = null,
+                            pendingVibrationLetters = null
+                        )
+                    }
+                    bubbleStateMachine.forceState(BubbleState.Idle)
+                }.onFailure { error ->
+                    AppDebugLogStore.e(tag, "process failed", error)
+                    _uiState.update {
+                        it.copy(
+                            working = false,
+                            autoRunState = AutoRunState.IDLE,
+                            pendingVibrationLetters = null,
+                            error = error.message ?: "处理失败"
+                        )
+                    }
+                }
             }
+        )
+    }
+
+    fun regenerateCurrentResult() {
+        val existingResult = _uiState.value.result ?: return
+        if (existingResult.automationAction != null || _uiState.value.working) return
+        val bitmaps = existingResult.loadHistoryBitmaps()
+        if (bitmaps.isEmpty()) {
+            _uiState.update { it.copy(error = "找不到原始截图，无法重新生成") }
+            return
         }
+        regenerateExistingResult(existingResult, bitmaps)
+    }
+
+    private fun regenerateExistingResult(existingResult: ProcessingResult, bitmaps: List<Bitmap>) {
+        val state = _uiState.value
+        val firstBitmap = bitmaps.firstOrNull() ?: return
+        val models = runCatching { pipeline.resolveModels(state) }.getOrElse { error ->
+            _uiState.update { it.copy(error = error.message) }
+            return
+        }
+
+        _uiState.update {
+            it.copy(
+                selectedBitmap = firstBitmap,
+                liveOcrText = "",
+                liveAnswerText = "",
+                error = null,
+                working = true,
+                sheetVisible = true,
+                sheetMode = OverlaySheetMode.RESULT,
+                result = existingResult.copy(detail = "正在重新生成")
+            )
+        }
+        workflowTaskManager.startRegenerateAnswerTask(
+            existingResult = existingResult,
+            models = models,
+            bitmaps = bitmaps,
+            onStateChanged = { result ->
+                _uiState.update { current ->
+                    current.copy(
+                        result = result,
+                        liveOcrText = result.extractedText,
+                        liveAnswerText = result.answer
+                    )
+                }
+            },
+            onFinished = { outcome ->
+                outcome.onSuccess { regenerated ->
+                    AppDebugLogStore.i(tag, "regenerate success resultId=${regenerated.id} answerLength=${regenerated.answer.length}")
+                    _uiState.update {
+                        it.copy(
+                            working = false,
+                            result = regenerated,
+                            liveOcrText = regenerated.extractedText,
+                            liveAnswerText = regenerated.answer,
+                            autoRunState = AutoRunState.IDLE,
+                            autoCopiedLabel = null,
+                            pendingVibrationLetters = null
+                        )
+                    }
+                    bubbleStateMachine.forceState(BubbleState.Idle)
+                }.onFailure { error ->
+                    AppDebugLogStore.e(tag, "regenerate failed", error)
+                    _uiState.update {
+                        it.copy(
+                            working = false,
+                            autoRunState = AutoRunState.IDLE,
+                            pendingVibrationLetters = null,
+                            error = error.message ?: "处理失败"
+                        )
+                    }
+                }
+            }
+        )
     }
 
     fun closeSheet() {
@@ -530,49 +546,6 @@ internal class OverlayViewModel(
         }
     }
 
-    private suspend fun handleError(error: Throwable, baseResult: ProcessingResult, isAutoMode: Boolean = false) {
-        val isTimeout = error is TimeoutCancellationException
-        val message = error.message?.ifBlank { null } ?: if (isTimeout) "请求超时（90 秒）" else "处理失败"
-        upsertHistory(
-            baseResult.copy(
-                status = if (isTimeout) ProcessingStatus.TIMEOUT else ProcessingStatus.ERROR,
-                detail = message,
-                extractedText = _uiState.value.liveOcrText,
-                answer = if (isAutoMode) "" else _uiState.value.liveAnswerText,
-                automationThought = if (isAutoMode) _uiState.value.liveAnswerText.orEmpty() else "",
-                events = baseResult.events + ProcessingEvent(
-                    title = if (isTimeout) "请求超时" else "请求失败",
-                    detail = message
-                )
-            )
-        )
-        _uiState.update {
-            it.copy(
-                working = false,
-                autoRunState = AutoRunState.IDLE,
-                pendingVibrationLetters = null,
-                error = message
-            )
-        }
-        // 进入 Error 状态显示错误图标，延迟后自动恢复 Idle
-        bubbleStateMachine.dispatch(BubbleEvent.ErrorOccurred(message))
-        if (isAutoMode) {
-            viewModelScope.launch {
-                kotlinx.coroutines.delay(3000)
-                if (bubbleStateMachine.currentState is BubbleState.Error) {
-                    bubbleStateMachine.forceState(BubbleState.Idle)
-                }
-            }
-        }
-    }
-
-    private suspend fun upsertHistory(result: ProcessingResult) {
-        repository.update { current ->
-            val history = listOf(result) + current.history.filterNot { it.id == result.id }
-            current.copy(lastResult = result, history = history)
-        }
-    }
-
     companion object {
         fun factory(appContext: Context): ViewModelProvider.Factory {
             val container = (appContext.applicationContext as `fun`.kirari.hanako.HanakoApplication).container
@@ -582,12 +555,8 @@ internal class OverlayViewModel(
                     return OverlayViewModel(
                         appContext = appContext,
                         repository = container.settingsRepository,
-                        pipeline = ProcessingPipeline(
-                            appContext = appContext,
-                            unifiedClient = container.unifiedLLMClient,
-                            localOcrManager = container.localOcrManager,
-                            searchOrchestrator = container.searchOrchestrator
-                        ),
+                        pipeline = container.workflow.pipeline,
+                        workflowTaskManager = container.workflow.taskManager,
                         providerModelsApi = container.providerModelsApi
                     ) as T
                 }

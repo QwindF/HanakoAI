@@ -36,6 +36,14 @@ fun String.loadHistoryBitmap(): Bitmap? {
     }.getOrNull()
 }
 
+fun ProcessingResult.loadHistoryBitmaps(): List<Bitmap> {
+    val bitmaps = allScreenshotPaths.mapNotNull { it.loadHistoryBitmap() }.toMutableList()
+    if (bitmaps.isEmpty()) {
+        screenshotBase64?.decodeHistoryBitmap()?.let(bitmaps::add)
+    }
+    return bitmaps
+}
+
 fun migrateBase64ToFile(context: Context, result: ProcessingResult): ProcessingResult {
     if (result.screenshotPath != null) return result
     val base64 = result.screenshotBase64 ?: return result

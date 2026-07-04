@@ -4,6 +4,7 @@ import `fun`.kirari.hanako.data.AutomationActionType
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.ProcessingStatus
+import `fun`.kirari.hanako.data.latestAnswerText
 import java.io.File
 import java.util.Locale
 
@@ -11,7 +12,7 @@ internal fun historyPreviewText(result: ProcessingResult): String {
     return when {
         result.detail.isNotBlank() && result.status != ProcessingStatus.SUCCESS -> result.detail
         result.automationAction != null -> "${automationActionLabel(result)}：${result.automationAction.text}"
-        result.answer.isNotBlank() -> result.answer
+        result.latestAnswerText().isNotBlank() -> result.latestAnswerText()
         else -> "暂无回答"
     }
 }

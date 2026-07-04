@@ -222,12 +222,14 @@ data class ProcessingResult(
     val detail: String = "",
     val extractedText: String = "",
     val answer: String = "",
+    val answerVersions: List<AnswerVersion> = emptyList(),
     val automationThought: String = "",
     val automationAction: AutomationActionRecord? = null,
     val screenshotBase64: String? = null,
     val screenshotPath: String? = null,
     val screenshotPaths: List<String> = emptyList(),
     val events: List<ProcessingEvent> = emptyList(),
+    val checkpoints: List<ProcessingCheckpointSummary> = emptyList(),
     val createdAtMillis: Long = System.currentTimeMillis()
 ) {
     val allScreenshotPaths: List<String>
@@ -237,11 +239,55 @@ data class ProcessingResult(
 }
 
 @Serializable
+data class AnswerVersion(
+    val text: String,
+    val createdAtMillis: Long = System.currentTimeMillis()
+)
+
+@Serializable
 data class ProcessingEvent(
     val title: String,
     val detail: String = "",
     val createdAtMillis: Long = System.currentTimeMillis()
 )
+
+@Serializable
+data class ProcessingCheckpointSummary(
+    val nodeId: String,
+    val inputSummary: String,
+    val outputSummary: String,
+    val artifacts: Map<String, String> = emptyMap(),
+    val replayable: Boolean,
+    val resumable: Boolean,
+    val createdAtMillis: Long
+)
+
+fun ProcessingResult.displayedAnswerVersions(): List<AnswerVersion> {
+    return answerVersions.ifEmpty {
+        answer.takeIf { it.isNotBlank() }?.let(::AnswerVersion)?.let(::listOf) ?: emptyList()
+    }
+}
+
+fun ProcessingResult.latestAnswerText(): String {
+    return displayedAnswerVersions().lastOrNull()?.text ?: answer
+}
+
+fun ProcessingResult.withAppendedAnswerVersion(newAnswer: String): ProcessingResult {
+    val existingVersions = displayedAnswerVersions().toMutableList()
+    if (newAnswer.isNotBlank()) {
+        existingVersions += AnswerVersion(newAnswer)
+    }
+    return copy(
+        answer = newAnswer,
+        answerVersions = existingVersions
+    )
+}
+
+fun ProcessingResult.withMergedAnswerVersionsFrom(previous: ProcessingResult): ProcessingResult {
+    val mergedVersions = previous.displayedAnswerVersions().toMutableList()
+    answer.takeIf { it.isNotBlank() }?.let { mergedVersions += AnswerVersion(it) }
+    return copy(answerVersions = mergedVersions)
+}
 
 @Serializable
 enum class ProcessingStatus {

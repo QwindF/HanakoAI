@@ -9,8 +9,8 @@ import `fun`.kirari.hanako.capture.ScreenCaptureManager
 import `fun`.kirari.hanako.data.AutomationActionRecord
 import `fun`.kirari.hanako.data.AutomationActionType
 import `fun`.kirari.hanako.data.ProcessingResult
-import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.hanako.runtime.WorkflowTaskManager
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,20 +19,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 
 internal class AutoProcessingController(
     private val appContext: Context,
     private val scope: CoroutineScope,
     private val uiState: MutableStateFlow<OverlayUiState>,
     private val pipeline: ProcessingPipeline,
-    private val bubbleStateMachine: BubbleStateMachine,
-    private val processingTimeoutMillis: Long,
-    private val upsertHistory: suspend (ProcessingResult) -> Unit,
-    private val handleError: suspend (Throwable, ProcessingResult, Boolean) -> Unit
+    private val workflowTaskManager: WorkflowTaskManager,
+    private val bubbleStateMachine: BubbleStateMachine
 ) {
     private val tag = "HanakoAutoProcessing"
     private var activeJob: Job? = null
+    private var activeWorkflowTaskId: String? = null
 
     fun processFullScreen() {
         AppDebugLogStore.i(tag, "processFullScreen start launchMode=${uiState.value.launchMode}")
@@ -98,6 +96,8 @@ internal class AutoProcessingController(
         AppDebugLogStore.i(tag, "cancelActiveProcessing")
         activeJob?.cancel()
         activeJob = null
+        activeWorkflowTaskId?.let(workflowTaskManager::cancelTask)
+        activeWorkflowTaskId = null
         uiState.update {
             it.copy(
                 working = false,
@@ -123,91 +123,45 @@ internal class AutoProcessingController(
             bubbleStateMachine.forceState(BubbleState.Idle)
             return
         }
-        val (baseResult, historyId, screenshotPaths) = pipeline.createBaseResult(models, bitmaps, "自动流程已开始")
-        val progressEvents = mutableListOf<`fun`.kirari.hanako.data.ProcessingEvent>()
-        upsertHistory(baseResult)
-
-        runCatching<Pair<AutomationActionRecord, ProcessingResult>> {
-            withTimeout(processingTimeoutMillis) {
-                val (action, result) = when (models.route) {
-                    ProcessingRoute.OCR_THEN_LLM -> {
-                        pipeline.validateOcrThenLlmModels(models)
-                        val (ocrText, automationResult, searchOutcome) = pipeline.streamOcrThenAutomation(
-                            models = models,
-                            bitmaps = bitmaps,
-                            onOcrDelta = { delta ->
-                                uiState.update { current -> current.copy(liveOcrText = current.liveOcrText + delta) }
-                            },
-                            onThoughtDelta = { delta ->
-                                uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
-                            },
-                            onSearchEvent = { event ->
-                                progressEvents.add(event)
-                                val progressResult = baseResult.copy(
-                                    extractedText = uiState.value.liveOcrText,
-                                    automationThought = uiState.value.liveAnswerText,
-                                    events = baseResult.events + progressEvents
-                                )
-                                upsertHistory(progressResult)
-                                uiState.update { current -> current.copy(result = progressResult) }
-                            }
-                        )
-                        pipeline.buildAutomationResult(
-                            baseResult,
-                            models,
-                            ocrText,
-                            automationResult,
-                            historyId,
-                            screenshotPaths,
-                            searchOutcome,
-                            progressEvents
-                        )
-                    }
-                    ProcessingRoute.MULTIMODAL_DIRECT -> {
-                        pipeline.validateVisionModels(models)
-                        val (automationResult, searchOutcome) = pipeline.streamAutomationDirect(
-                            models = models,
-                            bitmaps = bitmaps,
-                            onThoughtDelta = { delta ->
-                                uiState.update { current -> current.copy(liveAnswerText = current.liveAnswerText + delta) }
-                            },
-                            onSearchEvent = { event ->
-                                progressEvents.add(event)
-                                val progressResult = baseResult.copy(
-                                    extractedText = uiState.value.liveOcrText,
-                                    automationThought = uiState.value.liveAnswerText,
-                                    events = baseResult.events + progressEvents
-                                )
-                                upsertHistory(progressResult)
-                                uiState.update { current -> current.copy(result = progressResult) }
-                            }
-                        )
-                        pipeline.buildAutomationResult(
-                            baseResult,
-                            models,
-                            "",
-                            automationResult,
-                            historyId,
-                            screenshotPaths,
-                            searchOutcome,
-                            progressEvents
-                        )
-                    }
+        activeWorkflowTaskId = workflowTaskManager.startAutomationTask(
+            models = models,
+            bitmaps = bitmaps,
+            onStateChanged = { result ->
+                uiState.update { current ->
+                    current.copy(
+                        result = result,
+                        liveOcrText = result.extractedText,
+                        liveAnswerText = result.automationThought
+                    )
                 }
-                AppDebugLogStore.i(tag, "processBitmaps gateway success resultId=${result.id} action=${action.type}")
-                upsertHistory(result)
-                action to result
+            },
+            onFinished = { outcome ->
+                outcome.onSuccess { automationResult ->
+                    activeWorkflowTaskId = null
+                    AppDebugLogStore.i(
+                        tag,
+                        "processBitmaps gateway success resultId=${automationResult.result.id} action=${automationResult.action.type}"
+                    )
+                    applyAutomationAction(automationResult.action, automationResult.result, firstBitmap)
+                }.onFailure { error ->
+                    activeWorkflowTaskId = null
+                    if (error is CancellationException) {
+                        AppDebugLogStore.i(tag, "processBitmaps cancelled")
+                        return@onFailure
+                    }
+                    AppDebugLogStore.e(tag, "processBitmaps failed", error)
+                    uiState.update {
+                        it.copy(
+                            working = false,
+                            autoRunState = AutoRunState.IDLE,
+                            pendingVibrationLetters = null,
+                            error = error.message ?: "处理失败"
+                        )
+                    }
+                    bubbleStateMachine.forceState(BubbleState.Idle)
+                }
             }
-        }.onSuccess { (action, result) ->
-            applyAutomationAction(action, result, firstBitmap)
-        }.onFailure { error ->
-            if (error is CancellationException) {
-                AppDebugLogStore.i(tag, "processBitmaps cancelled")
-                return
-            }
-            AppDebugLogStore.e(tag, "processBitmaps failed", error)
-            handleError(error, baseResult, true)
-        }
+        )
     }
 
     private fun applyAutomationAction(

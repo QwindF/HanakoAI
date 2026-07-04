@@ -48,6 +48,7 @@ import `fun`.kirari.hanako.ui.components.SectionCard
 @Composable
 fun HistorySubScreen(
     settings: AppSettings,
+    liveResults: Map<String, ProcessingResult> = emptyMap(),
     onClearHistory: () -> Unit,
     onDeleteHistoryItem: (String) -> Unit,
     onOpenHistoryDetail: (String) -> Unit
@@ -79,7 +80,8 @@ fun HistorySubScreen(
                 }
             }
         } else {
-            items(settings.history, key = { it.id }) { result ->
+            items(settings.history, key = { it.id }) { persistedResult ->
+                val result = liveResults[persistedResult.id] ?: persistedResult
                 HistoryListItem(
                     result = result,
                     onClick = { onOpenHistoryDetail(result.id) },

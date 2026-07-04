@@ -239,8 +239,10 @@ fun HanakoApp(viewModel: MainViewModel) {
                     )
                 }
                 composable(ROUTE_HANAKO_HISTORY) {
+                    val liveWorkflowResults by viewModel.liveWorkflowResults.collectAsState()
                     HistorySubScreen(
                         settings = settings,
+                        liveResults = liveWorkflowResults,
                         onClearHistory = viewModel::clearHistory,
                         onDeleteHistoryItem = viewModel::deleteHistoryItem,
                         onOpenHistoryDetail = { resultId ->
@@ -250,8 +252,16 @@ fun HanakoApp(viewModel: MainViewModel) {
                 }
                 composable("$ROUTE_HANAKO_HISTORY_DETAIL/{$ARG_HISTORY_ID}") { entry ->
                     val resultId = entry.arguments?.getString(ARG_HISTORY_ID)
-                    val result = settings.history.firstOrNull { it.id == resultId }
-                    HistoryDetailScreen(result = result)
+                    val liveWorkflowResults by viewModel.liveWorkflowResults.collectAsState()
+                    val result = liveWorkflowResults[resultId] ?: settings.history.firstOrNull { it.id == resultId }
+                    val runningHistoryTasks by viewModel.runningHistoryTasks.collectAsState()
+                    val runningTask = resultId?.let { runningHistoryTasks[it] }
+                    HistoryDetailScreen(
+                        result = result,
+                        regenerating = runningTask != null,
+                        runningAnswerVersionIndex = runningTask?.answerVersionIndex,
+                        onRegenerate = { viewModel.regenerateHistoryResult(it.id) }
+                    )
                 }
                 composable(ROUTE_SETTINGS_PROVIDER) {
                     ProviderSettingsScreen(

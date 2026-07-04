@@ -37,17 +37,34 @@ import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.copyToClipboardWithToast
 import `fun`.kirari.hanako.data.ProcessingEvent
 import `fun`.kirari.hanako.data.ProcessingRoute
+import `fun`.kirari.hanako.data.displayedAnswerVersions
+import `fun`.kirari.hanako.data.latestAnswerText
+import `fun`.kirari.hanako.ui.AnswerActionBar
+import `fun`.kirari.hanako.ui.AnswerSwitchDirection
+import `fun`.kirari.hanako.ui.AnimatedAnswerVersionContent
 
 @Composable
 internal fun ResultOverlaySheet(
     uiState: OverlayUiState,
     onClose: () -> Unit,
-    panelHeightPx: Int
+    panelHeightPx: Int,
+    onRegenerate: () -> Unit
 ) {
     val density = LocalDensity.current
     val scrollState = rememberScrollState()
     val panelMaxHeight = with(density) { panelHeightPx.toDp() }
-    val answerText = uiState.liveAnswerText
+    val answerVersions = remember(uiState.result?.id, uiState.result?.answerVersions, uiState.result?.answer) {
+        uiState.result?.displayedAnswerVersions().orEmpty()
+    }
+    var currentVersionIndex by remember(uiState.result?.id, answerVersions.size) {
+        mutableStateOf((answerVersions.size - 1).coerceAtLeast(0))
+    }
+    var switchDirection by remember { mutableStateOf(AnswerSwitchDirection.NONE) }
+    val displayedAnswer = when {
+        uiState.working -> uiState.liveAnswerText
+        answerVersions.isNotEmpty() -> answerVersions.getOrNull(currentVersionIndex)?.text.orEmpty()
+        else -> uiState.result?.latestAnswerText().orEmpty()
+    }
 
     Box(
         modifier = Modifier
@@ -93,9 +110,25 @@ internal fun ResultOverlaySheet(
                         OcrResultCard(uiState)
                     }
                     AnswerResultCard(
-                        answerText = answerText,
+                        answerText = displayedAnswer,
+                        versionCount = answerVersions.size,
+                        currentVersionIndex = currentVersionIndex,
+                        switchDirection = switchDirection,
                         working = uiState.working,
-                        searchStatus = searchStatusText(uiState.result?.events.orEmpty())
+                        searchStatus = searchStatusText(uiState.result?.events.orEmpty()),
+                        onPreviousVersion = {
+                            if (currentVersionIndex > 0) {
+                                switchDirection = AnswerSwitchDirection.PREVIOUS
+                                currentVersionIndex -= 1
+                            }
+                        },
+                        onNextVersion = {
+                            if (currentVersionIndex < answerVersions.lastIndex) {
+                                switchDirection = AnswerSwitchDirection.NEXT
+                                currentVersionIndex += 1
+                            }
+                        },
+                        onRegenerate = onRegenerate
                     )
                     uiState.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
@@ -157,21 +190,31 @@ private fun OcrResultCard(uiState: OverlayUiState) {
 @Composable
 private fun AnswerResultCard(
     answerText: String,
+    versionCount: Int,
+    currentVersionIndex: Int,
+    switchDirection: AnswerSwitchDirection,
     working: Boolean,
-    searchStatus: String?
+    searchStatus: String?,
+    onPreviousVersion: () -> Unit,
+    onNextVersion: () -> Unit,
+    onRegenerate: () -> Unit
 ) {
     val context = LocalContext.current
     ResultCard(
         title = "答案",
         actions = {
-            if (!working && answerText.isNotBlank()) {
-                SmallHeaderAction(
-                    label = "复制",
-                    onClick = {
-                        copyToClipboardWithToast(context, "Hanako 原始答案", answerText, "已复制全文")
-                    }
-                )
-            }
+            AnswerActionBar(
+                versionCount = versionCount,
+                currentVersionIndex = currentVersionIndex,
+                canRegenerate = true,
+                regenerating = working,
+                onPreviousVersion = onPreviousVersion,
+                onNextVersion = onNextVersion,
+                onCopy = {
+                    copyToClipboardWithToast(context, "Hanako 原始答案", answerText, "已复制全文")
+                },
+                onRegenerate = onRegenerate
+            )
         }
     ) {
         searchStatus?.let {
@@ -182,11 +225,20 @@ private fun AnswerResultCard(
             )
         }
         when {
-            answerText.isNotBlank() -> MarkdownLatexText(
+            working && answerText.isBlank() -> LoadingLine("正在生成答案…")
+            working -> MarkdownLatexText(
                 content = answerText,
                 modifier = Modifier.fillMaxWidth()
             )
-            working -> LoadingLine("正在生成答案…")
+            answerText.isNotBlank() -> AnimatedAnswerVersionContent(
+                text = answerText,
+                direction = switchDirection
+            ) { currentText ->
+                MarkdownLatexText(
+                    content = currentText,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
             else -> Text("暂无内容")
         }
     }
