@@ -25,7 +25,6 @@ import `fun`.kirari.hanako.data.modelSelectionFor
 import `fun`.kirari.hanako.data.KIRARI_PROVIDER_ID
 import `fun`.kirari.hanako.data.KirariModelTag
 import `fun`.kirari.hanako.data.KirariSettings
-import `fun`.kirari.hanako.data.SearchProviderKind
 import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.localocr.LocalOcrManager
 import `fun`.kirari.hanako.network.KirariAuthHandleResult
@@ -56,23 +55,11 @@ data class KirariAccountState(
     val errorMessage: String? = null
 )
 
-enum class WebSearchQuotaStatus {
-    IDLE, LOADING, SUCCESS, FAILED
-}
-
-data class WebSearchQuotaState(
-    val status: WebSearchQuotaStatus = WebSearchQuotaStatus.IDLE,
-    val summary: String = "",
-    val detail: String = "",
-    val errorMessage: String = ""
-)
-
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val tag = "HanakoMainViewModel"
     private val container = (application as HanakoApplication).container
     private val repository: SettingsRepository = container.settingsRepository
     private val localOcrManager: LocalOcrManager = container.localOcrManager
-    private val tavilyUsageApi = container.tavilyUsageApi
     private val kirariAuthManager = container.kirariAuthManager
     private val settingsStore = container.settingsStore
 
@@ -83,10 +70,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var kirariAccountJob: Job? = null
     private val _kirariRedirectTarget = MutableStateFlow<String?>(null)
     val kirariRedirectTarget: StateFlow<String?> = _kirariRedirectTarget.asStateFlow()
-    private val _webSearchQuotaState = MutableStateFlow(WebSearchQuotaState())
-    val webSearchQuotaState: StateFlow<WebSearchQuotaState> = _webSearchQuotaState.asStateFlow()
-    private var webSearchQuotaJob: Job? = null
-
     val settings: StateFlow<AppSettings> = repository.settings.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -115,6 +98,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         providerRuntimeController.connectionTestManager
     val providerMetaState: StateFlow<ProviderMetaState> =
         providerRuntimeController.providerMetaState
+    private val webSearchQuotaController = WebSearchQuotaController(
+        scope = viewModelScope,
+        settings = settings,
+        tavilyUsageApi = container.tavilyUsageApi
+    )
+    val webSearchQuotaState: StateFlow<WebSearchQuotaState> =
+        webSearchQuotaController.state
 
     init {
         syncLocalOcrInstallation()
@@ -304,63 +294,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun queryWebSearchQuota() {
-        val provider = settings.value.webSearch.provider
-        if (provider.kind != SearchProviderKind.TAVILY) {
-            _webSearchQuotaState.value = WebSearchQuotaState(
-                status = WebSearchQuotaStatus.FAILED,
-                errorMessage = "当前搜索引擎不支持余额查询"
-            )
-            return
-        }
-        if (provider.apiKey.isBlank()) {
-            _webSearchQuotaState.value = WebSearchQuotaState(
-                status = WebSearchQuotaStatus.FAILED,
-                errorMessage = "请先填写 Tavily API Key"
-            )
-            return
-        }
-        webSearchQuotaJob?.cancel()
-        _webSearchQuotaState.value = WebSearchQuotaState(status = WebSearchQuotaStatus.LOADING)
-        webSearchQuotaJob = viewModelScope.launch {
-            val trustAll = settings.value.trustAllHttpsCertificates
-            val result = runCatching {
-                tavilyUsageApi.getUsage(
-                    baseUrl = provider.baseUrl,
-                    apiKey = provider.apiKey,
-                    trustAllHttps = trustAll
-                )
-            }
-            if (!isActive) return@launch
-            _webSearchQuotaState.value = result.fold(
-                onSuccess = { usage ->
-                    val remaining = usage.keyRemaining?.toString() ?: "未知"
-                    val limit = usage.keyLimit?.toString() ?: "未知"
-                    val detail = buildString {
-                        append("已用 ${usage.keyUsage ?: "未知"} / $limit")
-                        usage.accountPlan?.takeIf { it.isNotBlank() }?.let { plan ->
-                            append(" · 套餐 $plan")
-                        }
-                    }
-                    WebSearchQuotaState(
-                        status = WebSearchQuotaStatus.SUCCESS,
-                        summary = "剩余 $remaining",
-                        detail = detail
-                    )
-                },
-                onFailure = { error ->
-                    WebSearchQuotaState(
-                        status = WebSearchQuotaStatus.FAILED,
-                        errorMessage = error.message ?: "余额查询失败"
-                    )
-                }
-            )
-        }
+        webSearchQuotaController.query()
     }
 
     fun resetWebSearchQuotaState() {
-        webSearchQuotaJob?.cancel()
-        webSearchQuotaJob = null
-        _webSearchQuotaState.value = WebSearchQuotaState()
+        webSearchQuotaController.reset()
     }
 
     fun startKirariLogin(onReady: (String) -> Unit) {
