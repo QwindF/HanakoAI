@@ -9,6 +9,7 @@ import `fun`.kirari.hanako.overlay.state.OverlayUiState
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import `fun`.kirari.hanako.automation.BubbleEvent
 import `fun`.kirari.hanako.automation.BubbleState
 import `fun`.kirari.hanako.automation.BubbleStateMachine
@@ -147,9 +148,14 @@ internal class AutoProcessingController(
                     activeWorkflowTaskId = null
                     AppDebugLogStore.i(
                         tag,
-                        "processBitmaps gateway success resultId=${automationResult.result.id} action=${automationResult.action.type}"
+                        "processBitmaps gateway success resultId=${automationResult.result.id} action=${automationResult.action?.type}"
                     )
-                    applyAutomationAction(automationResult.action, automationResult.result, firstBitmap)
+                    val action = automationResult.action
+                    if (action != null) {
+                        applyAutomationAction(action, automationResult.result, firstBitmap)
+                    } else {
+                        applyAutomationResultWithoutAction(automationResult.result, firstBitmap)
+                    }
                 }.onFailure { error ->
                     activeWorkflowTaskId = null
                     if (error is CancellationException) {
@@ -176,8 +182,13 @@ internal class AutoProcessingController(
         result: ProcessingResult,
         firstBitmap: Bitmap
     ) {
+        automationTrace(
+            "applyAutomationAction type=${action.type} text=${action.text} thought=${result.automationThought} resultId=${result.id}"
+        )
         when (action.type) {
             AutomationActionType.SET_CLIPBOARD -> {
+                val clipboardText = action.text.takeIf { it.isNotBlank() }
+                automationTrace("apply SET_CLIPBOARD clipboardText=${clipboardText.orEmpty()} willCopy=${clipboardText != null}")
                 uiState.update {
                     it.copy(
                         screenshot = firstBitmap,
@@ -186,7 +197,7 @@ internal class AutoProcessingController(
                         result = result,
                         liveAnswerText = result.automationThought,
                         autoRunState = AutoRunState.COMPLETED,
-                        autoCopiedLabel = action.text,
+                        autoCopiedLabel = clipboardText,
                         pendingVibrationLetters = null,
                         error = null
                     )
@@ -194,6 +205,7 @@ internal class AutoProcessingController(
                 bubbleStateMachine.dispatch(BubbleEvent.CopyComplete(action.text))
             }
             AutomationActionType.SHOW_BUBBLE_LETTERS -> {
+                automationTrace("apply SHOW_BUBBLE_LETTERS letters=${action.text}")
                 uiState.update {
                     it.copy(
                         screenshot = firstBitmap,
@@ -209,6 +221,37 @@ internal class AutoProcessingController(
                 }
                 bubbleStateMachine.dispatch(BubbleEvent.LettersComplete(action.text))
             }
+        }
+    }
+
+    private fun applyAutomationResultWithoutAction(
+        result: ProcessingResult,
+        firstBitmap: Bitmap
+    ) {
+        automationTrace(
+            "applyAutomationResultWithoutAction thought=${result.automationThought} resultId=${result.id}"
+        )
+        uiState.update {
+            it.copy(
+                screenshot = firstBitmap,
+                selectedBitmap = firstBitmap,
+                working = false,
+                result = result,
+                liveAnswerText = result.automationThought,
+                autoRunState = AutoRunState.COMPLETED,
+                autoCopiedLabel = null,
+                pendingVibrationLetters = null,
+                error = null
+            )
+        }
+        bubbleStateMachine.forceState(BubbleState.Idle)
+    }
+
+    private fun automationTrace(message: String) {
+        val tag = "HanakoAutomationTrace"
+        message.chunked(3500).forEach { chunk ->
+            Log.i(tag, chunk)
+            AppDebugLogStore.i(tag, chunk)
         }
     }
 }

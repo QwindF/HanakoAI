@@ -1,11 +1,11 @@
 package `fun`.kirari.hanako.overlay.workflow
 
+import android.util.Log
 import `fun`.kirari.hanako.agent.AgentTool
 import `fun`.kirari.hanako.agent.ToolContext
 import `fun`.kirari.hanako.automation.AutomationResult
-import `fun`.kirari.hanako.automation.validateAutomationAction
+import `fun`.kirari.hanako.automation.buildAutomationResultFromModelOutput
 import `fun`.kirari.hanako.data.AutomationActionRecord
-import `fun`.kirari.hanako.data.AutomationActionType
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.ProcessingEvent
 import `fun`.kirari.hanako.data.ProcessingRoute
@@ -35,6 +35,7 @@ internal class AutomationAgentNode(
     private val toolsProvider: (AutomationNodeInput) -> List<AgentTool>
 ) : WorkflowNode<AutomationNodeInput, AutomationNodeOutput> {
     override val id: String = "automation_agent"
+    private val traceTag = "HanakoAutomationTrace"
 
     override suspend fun run(input: AutomationNodeInput, ctx: WorkflowContext): NodeResult<AutomationNodeOutput> {
         val models = input.models
@@ -51,14 +52,19 @@ internal class AutomationAgentNode(
             ProcessingRoute.MULTIMODAL_DIRECT -> models.assistant.visionPrompt
         }
         val basePrompt = input.ocrOutput?.let {
-            "以下是 OCR 结果，请先输出思考过程，再通过一次工具调用给出自动模式动作：\n${it.text}"
-        } ?: "请根据整张屏幕截图先输出思考过程，再通过一次工具调用给出自动模式动作。"
+            "以下是 OCR 结果，请先输出简短、清晰的思考过程，再通过一次工具调用给出自动模式动作：\n${it.text}"
+        } ?: "请根据整张屏幕截图先输出简短、清晰的思考过程，再通过一次工具调用给出自动模式动作。"
         val imagesBase64 = if (input.ocrOutput == null) {
             input.capturedImages.bitmaps.map { it.toBase64Jpeg() }
         } else {
             emptyList()
         }
         val runtime = AutomationAgentRuntime(unifiedClient)
+        automationTrace(
+            traceTag,
+            "node run workflow=${ctx.workflowId} route=${models.route} provider=${provider.kind} model=$model " +
+                "ocr=${input.ocrOutput != null} imageCount=${input.capturedImages.bitmaps.size}"
+        )
         val output = runtime.run(
             provider = provider,
             model = model,
@@ -76,11 +82,11 @@ internal class AutomationAgentNode(
         )
         AppDebugLogStore.i(
             "HanakoAutomationNode",
-            "automation complete thoughtLength=${output.automationResult.thought.length} action=${output.automationResult.action.type}"
+            "automation complete thoughtLength=${output.automationResult.thought.length} action=${output.automationResult.action?.type}"
         )
         return NodeResult(
             output = output,
-            checkpointSummary = "automation action ${output.automationResult.action.type}"
+            checkpointSummary = "automation action ${output.automationResult.action?.type ?: "none"}"
         )
     }
 }
@@ -88,6 +94,8 @@ internal class AutomationAgentNode(
 private class AutomationAgentRuntime(
     private val unifiedClient: UnifiedLLMClient
 ) {
+    private val traceTag = "HanakoAutomationTrace"
+
     suspend fun run(
         provider: ModelProviderConfig,
         model: String,
@@ -113,6 +121,11 @@ private class AutomationAgentRuntime(
             )
         )
         messages += userMessage(basePrompt, imagesBase64)
+        automationTrace(
+            traceTag,
+            "runtime start provider=${provider.kind} model=$model imageCount=${imagesBase64.size} " +
+                "tools=${tools.joinToString { it.name }} promptLen=${basePrompt.length}"
+        )
 
         var latestSearchOutcome: SearchOutcome? = null
         repeat(4) { index ->
@@ -125,9 +138,11 @@ private class AutomationAgentRuntime(
                 trustAllHttpsCertificates = trustAllHttpsCertificates,
                 onThoughtDelta = onThoughtDelta
             )
+            logPass("tool_loop_${index + 1}", pass.text, pass.toolCalls)
             val toolCall = pass.toolCalls.firstOrNull { it.name != ToolRegistry.WEB_SEARCH_TOOL.name }
                 ?: pass.toolCalls.firstOrNull()
             if (toolCall == null) {
+                automationTrace(traceTag, "tool_loop_${index + 1} no tool call; returning raw text only")
                 return AutomationNodeOutput(
                     automationResult = buildAutomationResult(StreamResult(thought = pass.text.trim(), toolCall = null)),
                     searchOutcome = latestSearchOutcome,
@@ -137,6 +152,7 @@ private class AutomationAgentRuntime(
 
             val tool = tools.firstOrNull { it.name == toolCall.name }
             if (tool == null) {
+                automationTrace(traceTag, "tool_loop_${index + 1} unknown tool=${toolCall.name} args=${toolCall.arguments}")
                 return AutomationNodeOutput(
                     automationResult = buildAutomationResult(StreamResult(thought = pass.text.trim(), toolCall = toolCall)),
                     searchOutcome = latestSearchOutcome,
@@ -144,6 +160,10 @@ private class AutomationAgentRuntime(
                 )
             }
             val toolResult = tool.invoke(toolCall.arguments, toolContext)
+            automationTrace(
+                traceTag,
+                "tool_loop_${index + 1} invoke tool=${tool.name} args=${toolCall.arguments} resultLen=${toolResult.text.length}"
+            )
             onToolEvents(toolResult.events)
             if (tool.name == ToolRegistry.WEB_SEARCH_TOOL.name) {
                 latestSearchOutcome = SearchOutcome(
@@ -180,6 +200,10 @@ private class AutomationAgentRuntime(
             trustAllHttpsCertificates = trustAllHttpsCertificates,
             onThoughtDelta = onThoughtDelta
         )
+        automationTrace(
+            traceTag,
+            "fallback pass textLen=${fallback.thought.length} tool=${fallback.toolCall?.name} args=${fallback.toolCall?.arguments}"
+        )
         return AutomationNodeOutput(
             automationResult = buildAutomationResult(fallback),
             searchOutcome = latestSearchOutcome,
@@ -214,10 +238,14 @@ private class AutomationAgentRuntime(
                     text.append(event.text)
                     onThoughtDelta(event.text)
                 }
-                is LlmEvent.ToolCall -> toolCall = event
+                is LlmEvent.ToolCall -> {
+                    toolCall = event
+                    automationTrace(traceTag, "single pass toolCall name=${event.name} args=${event.arguments}")
+                }
                 is LlmEvent.Done -> {}
             }
         }
+        automationTrace(traceTag, "single pass complete text=${text.toString().trim()}")
         return StreamResult(text.toString().trim(), toolCall)
     }
 
@@ -245,7 +273,10 @@ private class AutomationAgentRuntime(
                     text.append(event.text)
                     onThoughtDelta(event.text)
                 }
-                is LlmEvent.ToolCall -> toolCalls += event
+                is LlmEvent.ToolCall -> {
+                    toolCalls += event
+                    automationTrace(traceTag, "streamMessages toolCall name=${event.name} args=${event.arguments}")
+                }
                 is LlmEvent.Done -> {}
             }
         }
@@ -254,43 +285,26 @@ private class AutomationAgentRuntime(
 
     private fun buildAutomationResult(streamResult: StreamResult): AutomationResult {
         val tc = streamResult.toolCall
-        val thought = streamResult.thought
-        if (tc != null) {
-            val rawText = tc.arguments["text"]?.jsonPrimitive?.contentOrNull?.trim().orEmpty()
-            val action = try {
-                validateAutomationAction(tc.name, rawText)
-            } catch (_: IllegalArgumentException) {
-                null
-            }
-            if (action != null) {
-                return AutomationResult(thought = thought, action = action)
-            }
-        }
-        return AutomationResult(
-            thought = thought,
-            action = AutomationActionRecord(
-                type = AutomationActionType.SET_CLIPBOARD,
-                text = extractFallbackAnswer(thought)
-            )
+        val result = buildAutomationResultFromModelOutput(
+            toolName = tc?.name,
+            toolText = tc?.arguments?.get("text")?.jsonPrimitive?.contentOrNull,
+            thought = streamResult.thought
         )
+        automationTrace(
+            traceTag,
+            "build result tool=${tc?.name} toolText=${tc?.arguments?.get("text")?.jsonPrimitive?.contentOrNull.orEmpty()} " +
+                "thought=${streamResult.thought} action=${result.action?.type} actionText=${result.action?.text.orEmpty()}"
+        )
+        return result
     }
 
-    private fun extractFallbackAnswer(thought: String): String {
-        val trimmed = thought.trim()
-        if (trimmed.isBlank()) return ""
-        val lastLine = trimmed.lineSequence()
-            .map { it.trim() }
-            .filter { it.isNotBlank() }
-            .lastOrNull()
-            ?: return trimmed
-        val prefixes = listOf("答案：", "答案:", "所以：", "所以:", "因此：", "因此:", "最终答案：", "最终答案:")
-        for (prefix in prefixes) {
-            if (lastLine.startsWith(prefix, ignoreCase = true)) {
-                val stripped = lastLine.substring(prefix.length).trim()
-                if (stripped.isNotBlank()) return stripped
-            }
-        }
-        return lastLine
+    private fun logPass(label: String, text: String, toolCalls: List<LlmEvent.ToolCall>) {
+        automationTrace(
+            traceTag,
+            "$label complete textLen=${text.length} toolCount=${toolCalls.size} " +
+                "tools=${toolCalls.joinToString { "${it.name}:${it.arguments}" }}"
+        )
+        automationTrace(traceTag, "$label rawText=${text.trim()}")
     }
 }
 
@@ -304,12 +318,22 @@ private data class ToolLoopResult(
     val toolCalls: List<LlmEvent.ToolCall>
 )
 
+private fun automationTrace(tag: String, message: String) {
+    val chunks = message.chunked(3500).ifEmpty { listOf("") }
+    chunks.forEachIndexed { index, chunk ->
+        val line = if (chunks.size == 1) chunk else "[$index/${chunks.lastIndex}] $chunk"
+        Log.i(tag, line)
+        AppDebugLogStore.i(tag, line)
+    }
+}
+
 private fun automationSystemPrompt(userPrompt: String): String {
     val trimmed = userPrompt.trim()
     return """
         你当前处于自动答题模式。
-        你必须先输出简短、清晰的思考过程，说明你识别到了什么题型以及为什么这样判断。
-        思考过程结束后，你必须且只能调用一个工具，不能在工具调用后继续输出额外文本。
+        你必须先输出简短、清晰的思考过程，说明你识别到了什么题型、关键依据和最终答案判断。
+        思考过程结束后，你必须且只能调用一个工具给出自动动作，不能在工具调用后继续输出额外文本。
+        如果不确定，也要先说明不确定点，再优先调用最合适的工具，而不是只输出文字。
         工具选择规则：
         - 单选题、多选题、判断题，或答案最终对应题目选项时，必须调用 show_bubble_letters；text 只写选项字母或对错符号。
         - 填空题、输入框题、文本题，或用户需要粘贴答案本身时，必须调用 set_clipboard；text 只写用户要粘贴进去的最终内容。

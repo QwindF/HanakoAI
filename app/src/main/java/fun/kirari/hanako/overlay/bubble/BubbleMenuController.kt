@@ -17,6 +17,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import `fun`.kirari.hanako.automation.BubbleMenuItem
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.hanako.overlay.service.overlayWindowType
 import `fun`.kirari.hanako.ui.theme.HanakoTheme
 
 /**
@@ -52,7 +53,7 @@ internal class BubbleMenuController(
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {

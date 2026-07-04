@@ -143,8 +143,9 @@ fun HistoryDetailScreen(
                     HistoryMarkdownOrEmpty(result.automationThought)
                 }
             }
-            item {
-                val actionText = result.automationAction?.text.orEmpty()
+            result.automationAction?.let { action ->
+                item {
+                    val actionText = action.text
                 HistoryResultCard(
                     title = "工具调用",
                     action = {
@@ -160,6 +161,7 @@ fun HistoryDetailScreen(
                     Text("调用了工具：${automationActionLabel(result)}")
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(actionText.ifBlank { "暂无内容" })
+                }
                 }
             }
         } else {

@@ -78,7 +78,10 @@ internal class OpenAiChatAdapter(
                         tc.arguments.append(function["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty())
                     }
 
-                    SseStreamClient.StreamEventResult(delta = textDelta.ifEmpty { null })
+                    SseStreamClient.StreamEventResult(
+                        delta = textDelta.ifEmpty { null },
+                        activity = delta["tool_calls"] is JsonArray
+                    )
                 }
             },
             onDelta = {}
@@ -145,10 +148,10 @@ internal class OpenAiResponsesAdapter(
                         val itemId = root["item_id"]?.jsonPrimitive?.contentOrNull ?: return@stream null
                         val tc = toolCalls.getOrPut(itemId) { PendingToolCall() }
                         tc.arguments.append(root["delta"]?.jsonPrimitive?.contentOrNull.orEmpty())
-                        null
+                        SseStreamClient.StreamEventResult(activity = true)
                     }
 
-                    "response.output_item.added" -> {
+                    "response.output_item.added", "response.output_item.done" -> {
                         val item = root["item"]?.jsonObject ?: return@stream null
                         if (item["type"]?.jsonPrimitive?.contentOrNull == "function_call") {
                             val itemId = item["id"]?.jsonPrimitive?.contentOrNull ?: return@stream null
@@ -159,8 +162,10 @@ internal class OpenAiResponsesAdapter(
                                 tc.arguments.clear()
                                 tc.arguments.append(it)
                             }
+                            SseStreamClient.StreamEventResult(activity = true)
+                        } else {
+                            null
                         }
-                        null
                     }
 
                     "response.function_call_arguments.done" -> {
@@ -173,7 +178,7 @@ internal class OpenAiResponsesAdapter(
                             tc.arguments.clear()
                             tc.arguments.append(it)
                         }
-                        null
+                        SseStreamClient.StreamEventResult(activity = true)
                     }
 
                     else -> null
@@ -266,7 +271,7 @@ internal class AnthropicAdapter(
                             "input_json_delta" -> {
                                 val tc = toolCallsByIndex.getOrPut(index) { PendingToolCall() }
                                 tc.arguments.append(delta["partial_json"]?.jsonPrimitive?.contentOrNull.orEmpty())
-                                null
+                                SseStreamClient.StreamEventResult(activity = true)
                             }
 
                             else -> null
@@ -346,7 +351,10 @@ internal class GoogleAdapter(
                 if (deltaText.isNotEmpty()) {
                     trySend(LlmEvent.TextDelta(deltaText))
                 }
-                SseStreamClient.StreamEventResult(delta = deltaText.ifEmpty { null })
+                SseStreamClient.StreamEventResult(
+                    delta = deltaText.ifEmpty { null },
+                    activity = toolName != null && toolArgs != null
+                )
             },
             onDelta = {}
         )

@@ -131,7 +131,7 @@ internal class PanelWindowController(
         val params = panelParams ?: WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             panelCurrentHeightPx,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
@@ -152,7 +152,7 @@ internal class PanelWindowController(
         val handleParams = panelHandleParams ?: WindowManager.LayoutParams(
             panelHandleWidthPx,
             panelHandleHeightPx,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {

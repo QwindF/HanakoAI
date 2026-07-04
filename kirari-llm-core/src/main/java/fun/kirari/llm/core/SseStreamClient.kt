@@ -26,7 +26,8 @@ class SseStreamClient(
 
     data class StreamEventResult(
         val delta: String? = null,
-        val done: Boolean = false
+        val done: Boolean = false,
+        val activity: Boolean = false
     )
 
     suspend fun stream(
@@ -72,9 +73,11 @@ class SseStreamClient(
                         }
                         val result = onEvent(eventSource, type, id, data)
                         val delta = result?.delta
-                        if (!delta.isNullOrEmpty()) {
+                        if (!delta.isNullOrEmpty() || result?.activity == true) {
                             firstDeltaReceived.set(true)
                             timeoutJobRef?.cancel()
+                        }
+                        if (!delta.isNullOrEmpty()) {
                             builder.append(delta)
                             onDelta(delta)
                         }

@@ -2,7 +2,7 @@
 
 Hanako 是一个 Android 悬浮窗 AI 客户端，核心用途是截图识题与快速作答。默认助手提示词偏向搜题场景，也可以在应用内改成翻译、总结、阅读辅助等其他用途。
 
-[[Download 0.0.13-alpha](https://github.com/zyf2007/HanakoAI/releases/download/v0.0.13-alpha/app-lite-arm64-v8a-release.apk)]  [[View Release Notes](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.13-alpha)] [[Telegram](https://t.me/hutao_space)]
+[[Download 0.0.14-alpha](https://github.com/zyf2007/HanakoAI/releases/download/v0.0.14-alpha/app-lite-arm64-v8a-release.apk)]  [[View Release Notes](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.14-alpha)] [[Telegram](https://t.me/hutao_space)]
 
 Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可能短：
 
@@ -160,7 +160,7 @@ Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可
 - Android Studio 最新稳定版
 - Android SDK 36
 - JDK 11
-- Android 8.0 及以上设备或模拟器（项目 `minSdk = 26`）
+- Android 7.0 及以上设备或模拟器（项目 `minSdk = 24`）
 
 构建调试包：
 
@@ -190,7 +190,7 @@ Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可
 
 ## Changelog
 
-- 新增应用内检查更新：启动后静默检查 GitHub Release，并在首页标题旁显示升级入口。
-- 新增 README 兜底更新源：GitHub API 不可用时可解析 README 顶部下载链接和本节更新日志。
-- 重构主界面与设置页说明，补齐模型提供方、模型设置、联网搜索、助手配置和更多设置入口。
-- 补齐 Full / Lite 版本、本地 ML Kit OCR、MediaProjection / Shizuku 截图方式、The Kirari Network 和模块结构说明。
+- 修复自动模式原始输出展示：不再根据“识别为单选题”等文本伪造工具动作，历史记录保留模型原始输出和真实工具调用结果。
+- 修复 Responses 流式工具调用解析，兼容通过 SSE `event` 标识工具事件的网关线路，避免自动模式在 Kirari 线路下丢失工具调用。
+- 新增自动模式图片 live 测试：生成实际选择题与填空题图片，验证选择题走悬浮球、填空题走剪贴板。
+- 将最低支持系统降到 Android 7.0（API 24），并把 targetSdk 调整为 35，降低新系统兼容策略对悬浮窗/截屏流程的影响。

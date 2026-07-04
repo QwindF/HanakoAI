@@ -249,7 +249,7 @@ private class FakeHanakoWorkflowEngine : HanakoWorkflowEngine {
         models: ProcessingPipeline.ResolvedModels,
         output: AutomationWorkflowOutput,
         progressEvents: List<ProcessingEvent>
-    ): Pair<AutomationActionRecord, ProcessingResult> {
+    ): Pair<AutomationActionRecord?, ProcessingResult> {
         val action = output.automationOutput.automationResult.action
         return action to base.copy(
             status = ProcessingStatus.SUCCESS,

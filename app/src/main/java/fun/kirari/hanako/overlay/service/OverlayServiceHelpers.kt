@@ -35,7 +35,7 @@ internal fun OverlayService.buildNotification(): Notification {
 }
 
 internal fun OverlayService.notifyAutomationCompleted(label: String?) {
-    val content = label?.take(32)?.let { "已复制：$it" } ?: "自动模式已完成并复制到剪贴板"
+    val content = label?.take(32)?.let { "已复制：$it" } ?: "自动模式已完成"
     val notification = NotificationCompat.Builder(this, OverlayService.AUTOMATION_CHANNEL_ID)
         .setContentTitle(getString(R.string.overlay_automation_done_title))
         .setContentText(content)

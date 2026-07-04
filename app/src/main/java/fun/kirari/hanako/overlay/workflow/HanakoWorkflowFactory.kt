@@ -229,7 +229,7 @@ internal class HanakoWorkflowFactory(
         models: ProcessingPipeline.ResolvedModels,
         output: AutomationWorkflowOutput,
         progressEvents: List<ProcessingEvent>
-    ): Pair<AutomationActionRecord, ProcessingResult> {
+    ): Pair<AutomationActionRecord?, ProcessingResult> {
         val events = base.events.toMutableList()
         output.ocrOutput?.let {
             events += ProcessingEvent(title = "OCR 完成", detail = "已提取 ${it.text.length} 个字符")
@@ -238,20 +238,28 @@ internal class HanakoWorkflowFactory(
         if (progressEvents.none { it.title.startsWith("联网搜索") }) {
             buildSearchEvent(output.automationOutput.searchOutcome)?.let(events::add)
         }
-        events += ProcessingEvent(
-            title = "工具动作完成",
-            detail = "${output.automationOutput.automationResult.action.type}: ${output.automationOutput.automationResult.action.text}"
-        )
+        val action = output.automationOutput.automationResult.action
+        events += if (action != null) {
+            ProcessingEvent(
+                title = "工具动作完成",
+                detail = "${action.type}: ${action.text}"
+            )
+        } else {
+            ProcessingEvent(
+                title = "未收到有效工具调用",
+                detail = "已保留模型原始输出"
+            )
+        }
         val result = base.copy(
             status = ProcessingStatus.SUCCESS,
             detail = "自动处理完成",
             extractedText = output.ocrOutput?.text.orEmpty(),
             answer = "",
             automationThought = output.automationOutput.automationResult.thought,
-            automationAction = output.automationOutput.automationResult.action,
+            automationAction = action,
             events = events,
             checkpoints = output.checkpoints.toProcessingCheckpointSummaries()
         )
-        return output.automationOutput.automationResult.action to result
+        return action to result
     }
 }

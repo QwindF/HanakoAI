@@ -5,7 +5,7 @@ import `fun`.kirari.hanako.data.AutomationActionType
 
 data class AutomationResult(
     val thought: String,
-    val action: AutomationActionRecord
+    val action: AutomationActionRecord?
 )
 
 internal fun bubbleLettersAction(text: String): AutomationActionRecord =

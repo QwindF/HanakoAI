@@ -12,6 +12,7 @@ internal fun historyPreviewText(result: ProcessingResult): String {
     return when {
         result.detail.isNotBlank() && result.status != ProcessingStatus.SUCCESS -> result.detail
         result.automationAction != null -> "${automationActionLabel(result)}：${result.automationAction.text}"
+        result.automationThought.isNotBlank() -> result.automationThought
         result.latestAnswerText().isNotBlank() -> result.latestAnswerText()
         else -> "暂无回答"
     }

@@ -78,10 +78,10 @@ android {
 
     defaultConfig {
         applicationId = "fun.kirari.hanako"
-        minSdk = 26
-        targetSdk = 36
-        versionCode = 13
-        versionName = "0.0.13-alpha"
+        minSdk = 24
+        targetSdk = 35
+        versionCode = 14
+        versionName = "0.0.14-alpha"
 
         buildConfigField("String", "KIRARI_OIDC_CLIENT_ID", quoteBuildConfig(kirariOidcClientId))
         buildConfigField("String", "KIRARI_SERVER_URL", quoteBuildConfig(kirariServerUrl))
@@ -144,6 +144,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -168,6 +169,7 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(project(":kirari-auth-core"))
     implementation(project(":kirari-llm-core"))
     implementation(libs.androidx.core.ktx)

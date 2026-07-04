@@ -23,6 +23,7 @@ import `fun`.kirari.hanako.automation.BubbleRenderer
 import `fun`.kirari.hanako.automation.BubbleState
 import `fun`.kirari.hanako.data.BubbleAppearanceSettings
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.hanako.overlay.service.overlayWindowType
 import kotlin.math.roundToInt
 
 internal class BubbleWindowController(
@@ -57,7 +58,7 @@ internal class BubbleWindowController(
         val params = WindowManager.LayoutParams(
             rootSizePx,
             rootSizePx,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {

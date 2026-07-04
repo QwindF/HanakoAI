@@ -41,7 +41,7 @@ internal data class WorkflowTaskState(
 )
 
 internal data class WorkflowAutomationResult(
-    val action: AutomationActionRecord,
+    val action: AutomationActionRecord?,
     val result: ProcessingResult
 )
 
