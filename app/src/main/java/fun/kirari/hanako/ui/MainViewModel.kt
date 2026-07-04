@@ -16,30 +16,18 @@ import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.ScreenCaptureMethod
 import `fun`.kirari.hanako.data.SettingsRepository
-import `fun`.kirari.hanako.data.defaultAssistant
-import `fun`.kirari.hanako.data.defaultProvider
 import `fun`.kirari.hanako.debug.AppDebugLogStore
-import `fun`.kirari.hanako.data.LOCAL_OCR_MODEL_ID
-import `fun`.kirari.hanako.data.LOCAL_OCR_PROVIDER_ID
-import `fun`.kirari.hanako.data.modelSelectionFor
-import `fun`.kirari.hanako.data.KIRARI_PROVIDER_ID
-import `fun`.kirari.hanako.data.KirariModelTag
 import `fun`.kirari.hanako.data.KirariSettings
-import `fun`.kirari.hanako.data.availableProviders
+import `fun`.kirari.hanako.data.WebSearchSettings
 import `fun`.kirari.hanako.localocr.LocalOcrManager
-import `fun`.kirari.hanako.data.toKirariModelTag
 import `fun`.kirari.hanako.ui.history.HistoryWorkflowController
 import `fun`.kirari.hanako.ui.history.RunningHistoryTaskUiState
-import `fun`.kirari.llm.core.RemoteModelOption
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.UUID
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val tag = "HanakoMainViewModel"
@@ -74,6 +62,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         providerRuntimeController.connectionTestManager
     val providerMetaState: StateFlow<ProviderMetaState> =
         providerRuntimeController.providerMetaState
+    private val settingsEditorController = SettingsEditorController(
+        scope = viewModelScope,
+        repository = repository,
+        providerMetaState = providerMetaState
+    )
     private val webSearchQuotaController = WebSearchQuotaController(
         scope = viewModelScope,
         settings = settings,
@@ -98,123 +91,45 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateProvider(provider: ModelProviderConfig) {
-        if (provider.id == KIRARI_PROVIDER_ID) return
-        viewModelScope.launch {
-            repository.update { current ->
-                current.copy(
-                    providers = current.providers.map { if (it.id == provider.id) provider else it }
-                )
-            }
-        }
+        settingsEditorController.updateProvider(provider)
     }
 
     fun addProvider() {
-        viewModelScope.launch {
-            repository.update { current ->
-                val provider = ModelProviderConfig(name = "自定义提供方 ${current.providers.size + 1}")
-                current.copy(
-                    providers = current.providers + provider,
-                    selectedProviderId = provider.id
-                )
-            }
-        }
+        settingsEditorController.addProvider()
     }
 
     fun selectProvider(providerId: String) {
-        viewModelScope.launch {
-            repository.update { it.copy(selectedProviderId = providerId) }
-        }
+        settingsEditorController.selectProvider(providerId)
     }
 
     fun deleteProvider(providerId: String) {
-        if (providerId == KIRARI_PROVIDER_ID) return
-        viewModelScope.launch {
-            repository.update { current ->
-                val remaining = current.providers.filterNot { it.id == providerId }
-                val providers = if (remaining.isEmpty()) listOf(defaultProvider()) else remaining
-                val selectedProviderId = providers.firstOrNull()?.id
-                val fallbackProvider = current.copy(providers = providers).availableProviders().firstOrNull()
-                current.copy(
-                    providers = providers,
-                    selectedProviderId = selectedProviderId,
-                    textModelSelection = remapSelection(
-                        current.modelSelectionFor(ModelPurpose.TEXT),
-                        providers,
-                        fallbackProvider
-                    ),
-                    visionModelSelection = remapSelection(
-                        current.modelSelectionFor(ModelPurpose.VISION),
-                        providers,
-                        fallbackProvider
-                    ),
-                    ocrModelSelection = remapSelection(
-                        current.modelSelectionFor(ModelPurpose.OCR),
-                        providers,
-                        fallbackProvider
-                    )
-                )
-            }
-        }
+        settingsEditorController.deleteProvider(providerId)
     }
 
     fun updateAssistant(assistant: AssistantPreset) {
-        viewModelScope.launch {
-            repository.update { current ->
-                current.copy(
-                    assistants = current.assistants.map { if (it.id == assistant.id) assistant else it }
-                )
-            }
-        }
+        settingsEditorController.updateAssistant(assistant)
     }
 
     fun addAssistant() {
-        viewModelScope.launch {
-            repository.update { current ->
-                val assistant = AssistantPreset(
-                    id = UUID.randomUUID().toString(),
-                    name = "自定义助手 ${current.assistants.size + 1}",
-                    ocrPrompt = "请准确提取图片中的全部文字，按原有结构输出，不要解释。",
-                    textPrompt = "你是一个乐于助人的中文助手。",
-                    visionPrompt = "你是一个乐于助人的中文助手。请直接根据图片内容完成用户任务。"
-                )
-                current.copy(
-                    assistants = current.assistants + assistant,
-                    selectedAssistantId = assistant.id
-                )
-            }
-        }
+        settingsEditorController.addAssistant()
     }
 
-    fun selectAssistant(assistantId: String) = repository.selectAssistant(viewModelScope, assistantId)
+    fun selectAssistant(assistantId: String) = settingsEditorController.selectAssistant(assistantId)
 
     fun deleteAssistant(assistantId: String) {
-        viewModelScope.launch {
-            repository.update { current ->
-                val remaining = current.assistants.filterNot { it.id == assistantId }
-                val assistants = if (remaining.isEmpty()) listOf(defaultAssistant()) else remaining
-                val selectedAssistantId = assistants.firstOrNull()?.id
-                current.copy(
-                    assistants = assistants,
-                    selectedAssistantId = selectedAssistantId
-                )
-            }
-        }
+        settingsEditorController.deleteAssistant(assistantId)
     }
 
     fun setRoute(route: ProcessingRoute) {
-        viewModelScope.launch {
-            repository.update { it.copy(processingRoute = route) }
-        }
+        settingsEditorController.setRoute(route)
     }
 
     fun setScreenCaptureMethod(method: ScreenCaptureMethod) {
-        viewModelScope.launch {
-            repository.update { it.copy(screenCaptureMethod = method) }
-        }
+        settingsEditorController.setScreenCaptureMethod(method)
     }
 
     fun updateModelSelection(purpose: ModelPurpose, selection: ModelSelection) =
-        repository.updateModelSelection(viewModelScope, purpose, selection)
+        settingsEditorController.updateModelSelection(purpose, selection)
 
     fun syncLocalOcrInstallation() {
         viewModelScope.launch {
@@ -236,47 +151,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         purpose: ModelPurpose,
         selection: ModelSelection,
         favoriteModel: Boolean = false
-    ) = repository.updateModelSelectionWithFavorite(viewModelScope, purpose, selection, favoriteModel)
+    ) = settingsEditorController.updateModelSelectionWithFavorite(purpose, selection, favoriteModel)
 
     fun toggleFavoriteModel(providerId: String, modelId: String) =
-        repository.toggleFavoriteModel(viewModelScope, providerId, modelId)
+        settingsEditorController.toggleFavoriteModel(providerId, modelId)
 
     fun removeFavoriteModel(providerId: String, modelId: String) =
-        repository.removeFavoriteModel(viewModelScope, providerId, modelId)
+        settingsEditorController.removeFavoriteModel(providerId, modelId)
 
     fun updateAutomationSettings(transform: (AutomationSettings) -> AutomationSettings) {
-        viewModelScope.launch {
-            repository.update { current ->
-                val next = transform(current.automation)
-                current.copy(
-                    automation = next.copy(autoModeTimeoutSeconds = next.autoModeTimeoutSeconds.coerceAtLeast(1))
-                )
-            }
-        }
+        settingsEditorController.updateAutomationSettings(transform)
     }
 
     fun setTrustAllHttpsCertificates(enabled: Boolean) {
-        viewModelScope.launch {
-            repository.update { it.copy(trustAllHttpsCertificates = enabled) }
-        }
+        settingsEditorController.setTrustAllHttpsCertificates(enabled)
     }
 
     fun updateKirariSettings(transform: (KirariSettings) -> KirariSettings) {
-        viewModelScope.launch {
-            repository.update { current ->
-                val updatedSettings = current.copy(kirari = transform(current.kirari))
-                AppDebugLogStore.i(tag, "updateKirariSettings serverUrl=${updatedSettings.kirari.serverUrl}")
-                updatedSettings
-            }
-        }
+        settingsEditorController.updateKirariSettings(transform)
     }
 
-    fun updateWebSearchSettings(transform: (`fun`.kirari.hanako.data.WebSearchSettings) -> `fun`.kirari.hanako.data.WebSearchSettings) {
-        viewModelScope.launch {
-            repository.update { current ->
-                current.copy(webSearch = transform(current.webSearch))
-            }
-        }
+    fun updateWebSearchSettings(transform: (WebSearchSettings) -> WebSearchSettings) {
+        settingsEditorController.updateWebSearchSettings(transform)
     }
 
     fun queryWebSearchQuota() {
@@ -340,27 +236,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun shouldSuggestKirariAutoSetup(settings: AppSettings, providerMetaState: ProviderMetaState): Boolean {
-        val expected = expectedKirariSelections(providerMetaState.models)
-        if (expected.size != 3) {
-            return false
-        }
-        return expected.any { (purpose, selection) -> settings.modelSelectionFor(purpose) != selection }
+        return settingsEditorController.shouldSuggestKirariAutoSetup(settings, providerMetaState)
     }
 
     fun applyKirariAutoSetup() {
-        val expected = expectedKirariSelections(providerMetaState.value.models)
-        if (expected.size != 3) {
-            return
-        }
-        viewModelScope.launch {
-            repository.update { current ->
-                current.copy(
-                    textModelSelection = expected[ModelPurpose.TEXT] ?: current.textModelSelection,
-                    ocrModelSelection = expected[ModelPurpose.OCR] ?: current.ocrModelSelection,
-                    visionModelSelection = expected[ModelPurpose.VISION] ?: current.visionModelSelection
-                )
-            }
-        }
+        settingsEditorController.applyKirariAutoSetup()
     }
 
     fun clearDebugLogs() {
@@ -371,32 +251,5 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun syncKirariSessionStatus(force: Boolean = false) {
         kirariAuthController.syncSessionStatus(force)
-    }
-
-    private fun remapSelection(
-        selection: ModelSelection,
-        providers: List<ModelProviderConfig>,
-        fallbackProvider: ModelProviderConfig?
-    ): ModelSelection {
-        val providerExists = providers.any { it.id == selection.providerId }
-        return when {
-            providerExists -> selection
-            fallbackProvider != null -> selection.copy(providerId = fallbackProvider.id)
-            else -> selection.copy(providerId = null, model = "")
-        }
-    }
-
-    private fun expectedKirariSelections(models: List<RemoteModelOption>): Map<ModelPurpose, ModelSelection> {
-        val byTag = models.mapNotNull { option ->
-            option.tag?.toKirariModelTag()?.let { tag -> tag to option }
-        }.toMap()
-        val expected = linkedMapOf<ModelPurpose, ModelSelection>()
-        byTag[KirariModelTag.TEXT]?.let { expected[ModelPurpose.TEXT] = ModelSelection(KIRARI_PROVIDER_ID, it.id) }
-        byTag[KirariModelTag.OCR]?.let { expected[ModelPurpose.OCR] = ModelSelection(KIRARI_PROVIDER_ID, it.id) }
-        byTag[KirariModelTag.MULTIMODAL]?.let { expected[ModelPurpose.VISION] = ModelSelection(KIRARI_PROVIDER_ID, it.id) }
-        if (expected.size != 3) {
-            return emptyMap()
-        }
-        return expected
     }
 }
