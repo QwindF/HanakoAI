@@ -18,6 +18,7 @@ import `fun`.kirari.hanako.ui.provider.ProviderSettingsScreen
 import `fun`.kirari.hanako.ui.search.WebSearchSettingsScreen
 import `fun`.kirari.hanako.ui.settings.MoreSettingsScreen
 import `fun`.kirari.hanako.ui.settings.SettingsMenuScreen
+import `fun`.kirari.hanako.ui.update.AppUpdateDialog
 
 import android.content.Intent
 import android.net.Uri
@@ -34,15 +35,21 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -59,10 +66,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -85,6 +94,7 @@ import `fun`.kirari.hanako.ui.history.HistorySubScreen
 fun HanakoApp(viewModel: MainViewModel) {
     val settings by viewModel.settings.collectAsState()
     val debugEntries by AppDebugLogStore.entries.collectAsState()
+    val appUpdateState by viewModel.appUpdateState.collectAsState()
     val kirariAuthMessage by viewModel.kirariAuthMessage.collectAsState()
     val kirariRedirectTarget by viewModel.kirariRedirectTarget.collectAsState()
     val context = LocalContext.current
@@ -152,10 +162,22 @@ fun HanakoApp(viewModel: MainViewModel) {
             topBar = {
                 CenterAlignedTopAppBar(
                     title = {
-                        Text(
-                            appTitle(currentRoute, currentScreen),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                appTitle(currentRoute, currentScreen),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            if (
+                                currentRoute == ROUTE_HOME_SHELL &&
+                                currentScreen == Screen.Hanako &&
+                                appUpdateState.availableUpdate != null
+                            ) {
+                                UpgradeIconButton(onClick = viewModel::showUpdateDialog)
+                            }
+                        }
                     },
                     navigationIcon = {
                         if (currentRoute != null && currentRoute != ROUTE_HOME_SHELL) {
@@ -470,4 +492,31 @@ fun HanakoApp(viewModel: MainViewModel) {
         onSyncLocalOcrInstallation = viewModel::syncLocalOcrInstallation,
         providerModelsApi = providerModelsApi
     )
+
+    val availableUpdate = appUpdateState.availableUpdate
+    if (availableUpdate != null && appUpdateState.dialogVisible) {
+        AppUpdateDialog(
+            update = availableUpdate,
+            onDismiss = viewModel::dismissUpdateDialog
+        )
+    }
+}
+
+@Composable
+private fun UpgradeIconButton(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(20.dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.ArrowUpward,
+                contentDescription = "查看更新",
+                modifier = Modifier.size(15.dp)
+            )
+        }
+    }
 }

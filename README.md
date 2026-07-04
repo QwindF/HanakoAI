@@ -1,140 +1,129 @@
 # Hanako
 
-Hanako 是一个 Android 悬浮窗 AI 客户端，内置提示词支持的核心用途是搜题与快速作答，你也可以通过配置助手提示词配置成其他功能。  
+Hanako 是一个 Android 悬浮窗 AI 客户端，核心用途是截图识题与快速作答。默认助手提示词偏向搜题场景，也可以在应用内改成翻译、总结、阅读辅助等其他用途。
 
-[[Download 0.0.12-alpha](https://github.com/zyf2007/HanakoAI/releases/download/v0.0.12-alpha/app-lite-arm64-v8a-release.apk)]  [[View Release Notes](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.12-alpha)] [[Telegram](https://t.me/hutao_space)]
-
+[[Download 0.0.13-alpha](https://github.com/zyf2007/HanakoAI/releases/download/v0.0.13-alpha/app-lite-arm64-v8a-release.apk)]  [[View Release Notes](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.13-alpha)] [[Telegram](https://t.me/hutao_space)]
 
 Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可能短：
 
-- 普通模式：框选题目区域后发给 AI，展示解题思路，并附带可一键复制的答案片段，方便粘贴填写。
-- 自动模式：不需要框选，直接整屏发送给 AI；选择题答案会显示在悬浮球里，填空题或文本答案会自动写入剪贴板，用户只需要点击或粘贴即可，每题基本只要一步。
-  - 单图模式：单击悬浮球直接将当前屏幕发给 AI。
-  - 多图模式：长按悬浮球进入多图模式，之后每次单击悬浮球会往缓冲区中添加一张截图，直到再次长按一起发给 AI。中途如果误触可以双击取消。
+- 普通模式：点击悬浮球后框选题目区域，发送给 AI，结果面板会展示解题思路、答案和可一键复制的答案片段。
+- 自动模式：主页长按启动后进入自动模式，点击悬浮球会直接截取整屏并交给 AI；选择题答案显示在悬浮球里，填空题或文本答案写入剪贴板。
+- 多图模式：长按悬浮球进入多图截图，每次单击添加一页，再次长按把多张截图一起发送给 AI，双击取消。
 
 ## 主要功能
 
-- 悬浮球常驻桌面，随时发起识题
-- 支持普通模式与自动模式
+- 悬浮球常驻桌面，支持拖动、点击、双击、长按和扇形快捷菜单。
+- 支持普通模式、自动模式、多图截图模式。
 - 支持两种处理链路：
-  - `OCR_THEN_LLM`：先 OCR 提取文字，再交给文本模型分析，适合纯文本题目提高准确度/降低成本。
-  - `MULTIMODAL_DIRECT`：直接把截图交给多模态模型理解，适合带有图片的题目。
-- 普通模式支持输出解题思路、关键知识点和答案
-- 普通模式支持 `[copy:内容]` 片段，一键复制后直接填写
-- 自动模式支持：
-  - 选择题：把 `A` / `BC` / `ABD` 这类字母答案写到悬浮球里
-  - 填空题/简答题：把最终答案写入系统剪贴板
-- 支持历史记录查看
-- 支持自定义模型提供方、模型和助手提示词
+  - `OCR_THEN_LLM`：先 OCR 提取文字，再交给文本模型分析，适合纯文本题目。
+  - `MULTIMODAL_DIRECT`：直接把截图交给多模态模型理解，适合含图题目。
+- 支持云端 OCR、文本模型、多模态模型分别选择不同提供方和模型。
+- Full 版本内置 ML Kit 中文 OCR；Lite 版本不包含本地 OCR，建议使用云端 OCR 模型。
+- 普通模式支持 Markdown / LaTeX 渲染、答案版本切换、`[copy:内容]` 一键复制片段。
+- 自动模式支持选择题字母答案显示、文本答案剪贴板写入、完成通知、超时设置和静态振动提示。
+- 支持历史记录查看、删除、重新生成，并把截图保存到应用私有文件。
+- 支持联网搜索工具，由模型按需调用 `web_search` 后把搜索结果注入上下文。
+- 支持应用内检查更新，在首页标题旁提示新版本。
+- 支持 The Kirari Network OIDC 登录和 Kirari LLM 网关，也支持自定义模型提供方。
 
-## 模式说明
+## 使用方式
 
 ### 普通模式
 
 普通模式适合希望先看分析过程、再决定如何填写答案的场景。
 
-使用流程：
-
-1. 启动悬浮球。
+1. 在 Hanako 首页启动悬浮球。
 2. 点击悬浮球。
 3. 框选题目区域。
 4. 将截图发送给 AI。
-5. 在面板里查看解题思路、答案，以及一键复制片段。
-
-这个模式更适合：
-
-- 需要看解题过程
-- 需要核对 OCR 结果
-- 不是单纯客观题，答案需要自行整理后填写
+5. 在结果面板里查看解题思路、答案和一键复制片段。
 
 ### 自动模式
 
 自动模式适合追求极短操作链路的场景。
 
-使用流程：
-
-1. 在主页长按“启动”进入自动模式。
+1. 在 Hanako 首页长按启动按钮进入自动模式。
 2. 点击悬浮球。
-3. 应用直接截取整张屏幕并发送给 AI。
-4. AI 判断题型并只执行一个动作：
-   - 选择题：把答案字母显示到悬浮球
-   - 填空题/文本题：把最终答案写入剪贴板
+3. 应用截取整张屏幕并发送给 AI。
+4. AI 判断题型并执行一个动作：
+   - 选择题：把 `A` / `BC` / `ABD` 这类字母答案显示到悬浮球。
+   - 填空题/文本题：把最终答案写入系统剪贴板。
 
-这个模式的目标是：
+## 悬浮球操作
 
-- 不用框选
-- 不用弹出任何窗口
-- 每题尽量只保留一次点击或一次粘贴
-
-## 悬浮球操作说明
-
-悬浮球启动后会常驻在屏幕上，可以自由拖动到任意位置。不同手势对应不同操作：
+悬浮球启动后会常驻在屏幕上，可以自由拖动到任意位置。不同状态下的手势含义如下：
 
 | 手势 | Idle / Copied / Error | Processing | MultiPage | MenuExpanded |
 |------|-----------------------|------------|-----------|--------------|
 | 单击 | 打开截屏面板 | 打开截屏面板 | 截图一页 | 关闭菜单 |
 | 双击 | 展开扇形菜单 | 取消处理 | 退出多图 | 关闭菜单 |
 | 长按 | 进入多图截图 | 展开扇形菜单 | 发送截图 | 关闭菜单 |
-| 拖动 | 移动气泡 | 移动气泡 | 移动气泡 | — |
+| 拖动 | 移动气泡 | 移动气泡 | 移动气泡 | - |
 
 ### 快捷菜单
 
-双击悬浮球会展开一个扇形快捷菜单，提供以下功能：
+双击悬浮球会展开扇形快捷菜单：
 
-- **视觉**：切换 OCR 模式 / 多模态模式（高亮表示当前选中的模式）
-- **联网**：开启或关闭联网搜索（高亮表示已开启）
-- **设置**：打开应用主界面进行配置
+- **视觉**：切换 OCR 模式 / 多模态模式，高亮表示当前为多模态模式。
+- **联网**：开启或关闭联网搜索，高亮表示已开启。
+- **设置**：打开应用主界面。
 
-菜单会根据气泡在屏幕上的位置自动调整展开方向，确保在屏幕边缘也能完整显示。点击菜单外的空白区域或再次双击可关闭菜单。
+菜单会根据气泡在屏幕上的位置自动调整展开方向。可以在「设置 → 更多 → 扇形菜单设置」关闭菜单或调整跟随尺寸。
 
 ### 多图截图模式
 
-长按悬浮球进入多图模式后，气泡会变红并显示已截取的数量：
+长按悬浮球进入多图模式后，气泡会显示已截取数量：
 
-- 单击：截取当前屏幕并添加到缓冲区
-- 长按：将所有截图一起发送给 AI
-- 双击：取消多图模式并清空缓冲区
+- 单击：截取当前屏幕并添加到缓冲区。
+- 长按：将所有截图一起发送给 AI。
+- 双击：取消多图模式并清空缓冲区。
 
-## 权限说明
+## 权限与截图方式
 
 应用依赖以下系统能力：
 
-- 悬浮窗权限：用于显示悬浮球和结果面板
-- 截屏/录屏授权：用于抓取屏幕内容发送给 AI
-- 网络权限：用于请求模型接口
-- 通知权限：用于自动模式完成后的通知提醒
+- 悬浮窗权限：用于显示悬浮球和结果面板。
+- 网络权限：用于请求模型接口、搜索接口和检查更新。
+- 通知权限：用于自动模式完成后的通知提醒。
+- 截屏能力：可在「设置 → 更多 → 屏幕录制方式」选择。
 
-Android 14 及以上设备，首次启动相关功能时会看到系统截屏授权弹窗。
+当前支持两种截图后端：
+
+- MediaProjection：Android 系统截屏/录屏授权，兼容性最好，但通常会出现系统授权弹窗。
+- Shizuku ADB：通过 Shizuku 执行 `screencap`，需要设备已运行并授权 Shizuku。
 
 ## 配置说明
 
-应用内可以直接配置：
+应用主界面底部有两个入口：
 
-- 模型提供方
-- API Base URL
-- API Key
-- OCR 模型
-- 文本模型
-- 多模态模型
-- 助手提示词
+- **Hanako**：启动悬浮球、进入自动模式、切换处理链路、查看历史记录。
+- **设置**：管理模型、联网搜索、助手和其他高级选项。
 
-当前代码内已支持的提供方类型：
+设置页目前分为：
+
+- **模型提供方**：新增/编辑 API Base URL、API Key、提供方类型，支持连接测试和模型列表预览。
+- **模型设置**：分别为 OCR、文本、多模态任务指定提供方和模型，可收藏常用模型或手动输入模型名。
+- **联网搜索**：配置搜索开关、自动模式是否允许搜索、搜索引擎、API URL、API Key 和 Tavily 额度查询。
+- **助手配置**：管理助手名称、OCR 提示词、文本提示词和多模态提示词。
+- **更多**：配置悬浮球外观、扇形菜单、自动模式、静态振动、截图方式、网络兼容和 The Kirari Network。
+
+当前支持的模型提供方类型：
 
 - OpenAI Compatible
 - OpenAI Responses
 - Anthropic
 - Google Gemini
-
-你也可以分别给 `OCR`、`文本`、`多模态` 指定不同提供方和模型。
+- The Kirari Network
 
 ## 联网搜索
 
-应用在识别题目后，可让当前选中的文本模型通过 `web_search` 工具调用判断是否需要联网搜索；若需要，则用工具参数中的关键词调用搜索引擎，并把搜索结果作为上下文注入到 LLM 的 prompt 中。
+联网搜索开启后，当前任务模型可以通过 `web_search` 工具决定是否需要搜索。若模型调用工具，Hanako 会根据工具参数中的 `query` 调用搜索引擎，并把结果作为上下文继续交给模型生成回答。
 
 适用场景：
 
-- 时政、新闻、近期事件等模型训练数据未覆盖的问题
-- 需要最新数据才能准确作答的题目
+- 时政、新闻、近期事件等模型训练数据未覆盖的问题。
+- 需要最新数据才能准确作答的题目。
+- 明确要求联网查询的问题。
 
 支持的搜索引擎：
 
@@ -143,45 +132,47 @@ Android 14 及以上设备，首次启动相关功能时会看到系统截屏授
 - Serper.dev
 - 自定义（Tavily 兼容格式）
 
-在「设置 → 联网搜索」中配置搜索引擎 API Key 和相关参数。
-
 ### 搜索流程
 
 ```mermaid
 graph TD
-    A[OCR 完成] --> B{搜索开关已开启?}
-    B -- 否 --> C[跳过搜索，直接进入 LLM]
+    A[任务进入 LLM] --> B{搜索开关已开启?}
+    B -- 否 --> C[跳过搜索]
     B -- 是 --> D{自动模式且未开启自动搜索?}
     D -- 是 --> C
     D -- 否 --> E{API Key / URL 已配置?}
     E -- 否 --> C
-    E -- 是 --> F[LLM 通过 web_search 工具判断]
-    F -- 不需要 --> C
-    F -- 需要 --> G[读取工具参数 query]
-    G --> H[调用搜索引擎 API]
-    H --> I{有结果?}
-    I -- 否 --> C
-    I -- 是 --> J[格式化搜索结果]
-    J --> K[注入到用户 Prompt]
-    K --> L[LLM 生成回答]
-    C --> L
+    E -- 是 --> F[LLM 调用 web_search]
+    F -- 不调用 --> G[直接生成回答]
+    F -- 调用 --> H[读取 query 参数]
+    H --> I[调用搜索引擎 API]
+    I --> J{有结果?}
+    J -- 否 --> G
+    J -- 是 --> K[格式化搜索结果]
+    K --> L[追加工具结果继续生成]
+    C --> G
 ```
 
 ## 技术实现概览
 
 - Android + Kotlin
-- Jetpack Compose
+- Jetpack Compose + Material 3
 - DataStore 保存本地配置与历史记录
 - OkHttp / SSE 处理流式模型输出
-- 前台服务 + MediaProjection 完成悬浮窗与截屏
+- MediaProjection / Shizuku 完成截屏
+- 前台服务承载悬浮窗
+- `kirari-llm-core` 封装多提供方 LLM 适配器与工具调用格式
+- `kirari-auth-core` 封装 OIDC PKCE 登录流程
 
 主要目录：
 
-- [app/src/main/java/fun/kirari/hanako/ui](/home/zyf/Code/Projects/Hanako/app/src/main/java/fun/kirari/hanako/ui)
-- [app/src/main/java/fun/kirari/hanako/overlay](/home/zyf/Code/Projects/Hanako/app/src/main/java/fun/kirari/hanako/overlay)
-- [app/src/main/java/fun/kirari/hanako/capture](/home/zyf/Code/Projects/Hanako/app/src/main/java/fun/kirari/hanako/capture)
-- [app/src/main/java/fun/kirari/hanako/network](/home/zyf/Code/Projects/Hanako/app/src/main/java/fun/kirari/hanako/network)
-- [app/src/main/java/fun/kirari/hanako/automation](/home/zyf/Code/Projects/Hanako/app/src/main/java/fun/kirari/hanako/automation)
+- [app/src/main/java/fun/kirari/hanako/ui](app/src/main/java/fun/kirari/hanako/ui)
+- [app/src/main/java/fun/kirari/hanako/overlay](app/src/main/java/fun/kirari/hanako/overlay)
+- [app/src/main/java/fun/kirari/hanako/capture](app/src/main/java/fun/kirari/hanako/capture)
+- [app/src/main/java/fun/kirari/hanako/network](app/src/main/java/fun/kirari/hanako/network)
+- [app/src/main/java/fun/kirari/hanako/workflow](app/src/main/java/fun/kirari/hanako/workflow)
+- [kirari-llm-core](kirari-llm-core)
+- [kirari-auth-core](kirari-auth-core)
 
 ## 本地构建
 
@@ -190,7 +181,7 @@ graph TD
 - Android Studio 最新稳定版
 - Android SDK 36
 - JDK 11
-- Android 12 及以上设备或模拟器（项目 `minSdk = 31`）
+- Android 8.0 及以上设备或模拟器（项目 `minSdk = 26`）
 
 构建调试包：
 
@@ -204,4 +195,23 @@ graph TD
 ./gradlew test
 ```
 
+构建 release 包：
+
+```bash
+./gradlew assembleRelease
+```
+
+项目包含 `full` 和 `lite` 两个 flavor，并按 ABI 拆包：
+
+- `app-lite-arm64-v8a-release.apk`：推荐大多数手机使用。
+- `app-full-arm64-v8a-release.apk`：包含本地 ML Kit 中文 OCR。
+- `app-lite-armeabi-v7a-release.apk` / `app-full-armeabi-v7a-release.apk`：32 位设备使用。
+
 如果需要构建签名发布包，可在项目根目录提供 `keystore.properties`。
+
+## Changelog
+
+- 新增应用内检查更新：启动后静默检查 GitHub Release，并在首页标题旁显示升级入口。
+- 新增 README 兜底更新源：GitHub API 不可用时可解析 README 顶部下载链接和本节更新日志。
+- 重构主界面与设置页说明，补齐模型提供方、模型设置、联网搜索、助手配置和更多设置入口。
+- 补齐 Full / Lite 版本、本地 ML Kit OCR、MediaProjection / Shizuku 截图方式、The Kirari Network 和模块结构说明。

@@ -8,6 +8,8 @@ import `fun`.kirari.hanako.ui.provider.ProviderRuntimeController
 import `fun`.kirari.hanako.ui.search.WebSearchQuotaController
 import `fun`.kirari.hanako.ui.search.WebSearchQuotaState
 import `fun`.kirari.hanako.ui.settings.SettingsEditorController
+import `fun`.kirari.hanako.ui.update.AppUpdateController
+import `fun`.kirari.hanako.ui.update.AppUpdateUiState
 
 import android.app.Application
 import android.net.Uri
@@ -83,6 +85,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val webSearchQuotaState: StateFlow<WebSearchQuotaState> =
         webSearchQuotaController.state
+    private val appUpdateController = AppUpdateController(
+        scope = viewModelScope,
+        appUpdateApi = container.appUpdateApi
+    )
+    val appUpdateState: StateFlow<AppUpdateUiState> = appUpdateController.state
     private val kirariAuthController = KirariAuthController(
         scope = viewModelScope,
         settingsStore = container.settingsStore,
@@ -97,6 +104,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         syncLocalOcrInstallation()
         syncKirariSessionStatus()
+        appUpdateController.checkOnceSilently()
     }
 
     fun updateProvider(provider: ModelProviderConfig) {
@@ -254,6 +262,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearDebugLogs() {
         AppDebugLogStore.clear()
+    }
+
+    fun showUpdateDialog() {
+        appUpdateController.showDialog()
+    }
+
+    fun dismissUpdateDialog() {
+        appUpdateController.dismissDialog()
     }
 
     fun hasKirariClientId(): Boolean = BuildConfig.KIRARI_OIDC_CLIENT_ID.isNotBlank()

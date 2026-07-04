@@ -80,8 +80,8 @@ android {
         applicationId = "fun.kirari.hanako"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 13
+        versionName = "0.0.13-alpha"
 
         buildConfigField("String", "KIRARI_OIDC_CLIENT_ID", quoteBuildConfig(kirariOidcClientId))
         buildConfigField("String", "KIRARI_SERVER_URL", quoteBuildConfig(kirariServerUrl))
