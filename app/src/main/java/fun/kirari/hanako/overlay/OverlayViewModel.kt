@@ -5,16 +5,12 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import `fun`.kirari.hanako.AppContainer
 import `fun`.kirari.hanako.automation.BubbleMenuItem
 import `fun`.kirari.hanako.automation.BubbleState
 import `fun`.kirari.hanako.automation.BubbleStateMachine
 import `fun`.kirari.hanako.data.ModelPurpose
 import `fun`.kirari.hanako.data.ModelSelection
-import `fun`.kirari.hanako.data.ProcessingResult
-import `fun`.kirari.hanako.data.ProcessingRoute
 import `fun`.kirari.hanako.data.SettingsRepository
-import `fun`.kirari.hanako.data.loadHistoryBitmaps
 import `fun`.kirari.hanako.debug.AppDebugLogStore
 import `fun`.kirari.hanako.network.ProviderModelsApi
 import `fun`.kirari.hanako.runtime.WorkflowTaskManager
@@ -51,6 +47,17 @@ internal class OverlayViewModel(
         pipeline = pipeline,
         workflowTaskManager = workflowTaskManager,
         bubbleStateMachine = bubbleStateMachine
+    )
+    private val answerController = OverlayAnswerController(
+        uiState = _uiState,
+        pipeline = pipeline,
+        workflowTaskManager = workflowTaskManager,
+        bubbleStateMachine = bubbleStateMachine
+    )
+    private val settingsController = OverlaySettingsController(
+        scope = viewModelScope,
+        repository = repository,
+        uiState = _uiState
     )
     private val interactionController = OverlayInteractionController(
         uiState = _uiState,
@@ -146,145 +153,15 @@ internal class OverlayViewModel(
     }
 
     fun process(bitmap: Bitmap) {
-        process(listOf(bitmap))
+        answerController.process(bitmap)
     }
 
     fun process(bitmaps: List<Bitmap>) {
-        val state = _uiState.value
-        val firstBitmap = bitmaps.firstOrNull() ?: return
-        AppDebugLogStore.i(tag, "process start route=${state.settings.processingRoute} bitmapCount=${bitmaps.size}")
-
-        val models = runCatching { pipeline.resolveModels(state) }.getOrElse { error ->
-            _uiState.update { it.copy(error = error.message) }
-            return
-        }
-
-        _uiState.update {
-            it.copy(
-                selectedBitmap = firstBitmap,
-                liveOcrText = "",
-                liveAnswerText = "",
-                result = null,
-                error = null,
-                working = true,
-                sheetVisible = true,
-                sheetMode = OverlaySheetMode.RESULT
-            )
-        }
-        workflowTaskManager.startAnswerTask(
-            models = models,
-            bitmaps = bitmaps,
-            onStateChanged = { result ->
-                _uiState.update { current ->
-                    current.copy(
-                        result = result,
-                        liveOcrText = result.extractedText,
-                        liveAnswerText = result.answer
-                    )
-                }
-            },
-            onFinished = { outcome ->
-                outcome.onSuccess { result ->
-                    AppDebugLogStore.i(tag, "process success resultId=${result.id} answerLength=${result.answer.length}")
-                    _uiState.update {
-                        it.copy(
-                            working = false,
-                            result = result,
-                            liveOcrText = result.extractedText,
-                            liveAnswerText = result.answer,
-                            autoRunState = AutoRunState.IDLE,
-                            autoCopiedLabel = null,
-                            pendingVibrationLetters = null
-                        )
-                    }
-                    bubbleStateMachine.forceState(BubbleState.Idle)
-                }.onFailure { error ->
-                    AppDebugLogStore.e(tag, "process failed", error)
-                    _uiState.update {
-                        it.copy(
-                            working = false,
-                            autoRunState = AutoRunState.IDLE,
-                            pendingVibrationLetters = null,
-                            error = error.message ?: "处理失败"
-                        )
-                    }
-                }
-            }
-        )
+        answerController.process(bitmaps)
     }
 
     fun regenerateCurrentResult() {
-        val existingResult = _uiState.value.result ?: return
-        if (existingResult.automationAction != null || _uiState.value.working) return
-        val bitmaps = existingResult.loadHistoryBitmaps()
-        if (bitmaps.isEmpty()) {
-            _uiState.update { it.copy(error = "找不到原始截图，无法重新生成") }
-            return
-        }
-        regenerateExistingResult(existingResult, bitmaps)
-    }
-
-    private fun regenerateExistingResult(existingResult: ProcessingResult, bitmaps: List<Bitmap>) {
-        val state = _uiState.value
-        val firstBitmap = bitmaps.firstOrNull() ?: return
-        val models = runCatching { pipeline.resolveModels(state) }.getOrElse { error ->
-            _uiState.update { it.copy(error = error.message) }
-            return
-        }
-
-        _uiState.update {
-            it.copy(
-                selectedBitmap = firstBitmap,
-                liveOcrText = "",
-                liveAnswerText = "",
-                error = null,
-                working = true,
-                sheetVisible = true,
-                sheetMode = OverlaySheetMode.RESULT,
-                result = existingResult.copy(detail = "正在重新生成")
-            )
-        }
-        workflowTaskManager.startRegenerateAnswerTask(
-            existingResult = existingResult,
-            models = models,
-            bitmaps = bitmaps,
-            onStateChanged = { result ->
-                _uiState.update { current ->
-                    current.copy(
-                        result = result,
-                        liveOcrText = result.extractedText,
-                        liveAnswerText = result.answer
-                    )
-                }
-            },
-            onFinished = { outcome ->
-                outcome.onSuccess { regenerated ->
-                    AppDebugLogStore.i(tag, "regenerate success resultId=${regenerated.id} answerLength=${regenerated.answer.length}")
-                    _uiState.update {
-                        it.copy(
-                            working = false,
-                            result = regenerated,
-                            liveOcrText = regenerated.extractedText,
-                            liveAnswerText = regenerated.answer,
-                            autoRunState = AutoRunState.IDLE,
-                            autoCopiedLabel = null,
-                            pendingVibrationLetters = null
-                        )
-                    }
-                    bubbleStateMachine.forceState(BubbleState.Idle)
-                }.onFailure { error ->
-                    AppDebugLogStore.e(tag, "regenerate failed", error)
-                    _uiState.update {
-                        it.copy(
-                            working = false,
-                            autoRunState = AutoRunState.IDLE,
-                            pendingVibrationLetters = null,
-                            error = error.message ?: "处理失败"
-                        )
-                    }
-                }
-            }
-        )
+        answerController.regenerateCurrentResult()
     }
 
     fun closeSheet() {
@@ -391,55 +268,30 @@ internal class OverlayViewModel(
     }
 
     fun toggleWebSearch() {
-        viewModelScope.launch {
-            repository.update { current ->
-                current.copy(
-                    webSearch = current.webSearch.copy(enabled = !current.webSearch.enabled)
-                )
-            }
-        }
+        settingsController.toggleWebSearch()
     }
 
-    fun selectAssistant(assistantId: String) = repository.selectAssistant(viewModelScope, assistantId)
+    fun selectAssistant(assistantId: String) = settingsController.selectAssistant(assistantId)
 
     fun selectPreviousAssistant() {
-        val current = _uiState.value.settings
-        val assistants = current.assistants
-        if (assistants.isEmpty()) return
-        val selectedIndex = assistants.indexOfFirst { it.id == current.selectedAssistantId }.takeIf { it >= 0 } ?: 0
-        val previousIndex = if (selectedIndex == 0) assistants.lastIndex else selectedIndex - 1
-        selectAssistant(assistants[previousIndex].id)
+        settingsController.selectPreviousAssistant()
     }
 
     fun selectNextAssistant() {
-        val current = _uiState.value.settings
-        val assistants = current.assistants
-        if (assistants.isEmpty()) return
-        val selectedIndex = assistants.indexOfFirst { it.id == current.selectedAssistantId }.takeIf { it >= 0 } ?: 0
-        val nextIndex = if (selectedIndex == assistants.lastIndex) 0 else selectedIndex + 1
-        selectAssistant(assistants[nextIndex].id)
+        settingsController.selectNextAssistant()
     }
 
     fun updateModelSelection(purpose: ModelPurpose, selection: ModelSelection) =
-        repository.updateModelSelection(viewModelScope, purpose, selection)
+        settingsController.updateModelSelection(purpose, selection)
 
     fun updateModelSelectionWithFavorite(purpose: ModelPurpose, selection: ModelSelection, favoriteModel: Boolean = false) =
-        repository.updateModelSelectionWithFavorite(viewModelScope, purpose, selection, favoriteModel)
+        settingsController.updateModelSelectionWithFavorite(purpose, selection, favoriteModel)
 
     fun toggleFavoriteModel(providerId: String, modelId: String) =
-        repository.toggleFavoriteModel(viewModelScope, providerId, modelId)
+        settingsController.toggleFavoriteModel(providerId, modelId)
 
     fun toggleProcessingRoute() {
-        viewModelScope.launch {
-            repository.update { current ->
-                current.copy(
-                    processingRoute = when (current.processingRoute) {
-                        ProcessingRoute.OCR_THEN_LLM -> ProcessingRoute.MULTIMODAL_DIRECT
-                        ProcessingRoute.MULTIMODAL_DIRECT -> ProcessingRoute.OCR_THEN_LLM
-                    }
-                )
-            }
-        }
+        settingsController.toggleProcessingRoute()
     }
 
     companion object {
