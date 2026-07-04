@@ -7,6 +7,8 @@ class SettingsRepository(private val store: SettingsStore) {
 
     val settings = store.settings
 
+    suspend fun read(): AppSettings = store.read()
+
     suspend fun update(transform: (AppSettings) -> AppSettings) {
         store.update(transform)
     }

@@ -6,24 +6,19 @@ import `fun`.kirari.hanako.data.AnswerVersion
 import `fun`.kirari.hanako.data.ProcessingEvent
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingStatus
-import `fun`.kirari.hanako.data.SettingsRepository
 import `fun`.kirari.hanako.data.displayedAnswerVersions
-import `fun`.kirari.hanako.data.latestAnswerText
 import `fun`.kirari.hanako.debug.AppDebugLogStore
 import `fun`.kirari.hanako.overlay.OverlayUiState
 import `fun`.kirari.hanako.overlay.ProcessingPipeline
 import `fun`.kirari.hanako.overlay.workflow.HanakoWorkflowFactory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
@@ -55,20 +50,17 @@ internal data class WorkflowAutomationResult(
 )
 
 internal class WorkflowTaskManager(
-    private val repository: SettingsRepository,
-    private val pipeline: ProcessingPipeline,
+    private val repository: WorkflowHistoryRepository,
+    private val resultStore: WorkflowResultStore,
     private val workflowFactory: HanakoWorkflowFactory,
+    private val scope: CoroutineScope,
     private val processingTimeoutMillis: Long = 90_000L
 ) {
     private val tag = "HanakoWorkflowTasks"
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val jobs = mutableMapOf<String, Job>()
-    private val persistJobs = mutableMapOf<String, Job>()
-    private val persistVersions = mutableMapOf<String, Long>()
     private val _tasks = MutableStateFlow<Map<String, WorkflowTaskState>>(emptyMap())
     val tasks: StateFlow<Map<String, WorkflowTaskState>> = _tasks.asStateFlow()
-    private val _liveResults = MutableStateFlow<Map<String, ProcessingResult>>(emptyMap())
-    val liveResults: StateFlow<Map<String, ProcessingResult>> = _liveResults.asStateFlow()
+    val liveResults: StateFlow<Map<String, ProcessingResult>> = resultStore.liveResults
 
     fun isRunning(historyId: String): Boolean {
         return _tasks.value.values.any {
@@ -92,26 +84,26 @@ internal class WorkflowTaskManager(
                     val (preparedBaseResult, capturedImages) = workflowFactory.prepareBaseResult(models, bitmaps)
                     baseResult = preparedBaseResult
                     registerTask(taskId, preparedBaseResult.id, WorkflowTaskKind.ANSWER)
-                    upsertHistory(preparedBaseResult)
+                    resultStore.upsert(preparedBaseResult)
                     onStateChanged(preparedBaseResult)
 
                     val workflowOutput = workflowFactory.runAnswerWorkflow(
                         models = models,
                         capturedImages = capturedImages,
                         onOcrDelta = { text ->
-                            updateHistoryResult(preparedBaseResult.id) { current ->
+                            resultStore.update(preparedBaseResult.id) { current ->
                                 current.copy(extractedText = text)
                             }?.let(onStateChanged)
                         },
                         onAnswerDelta = { delta ->
                             answerText.append(delta)
-                            updateHistoryResult(preparedBaseResult.id) { current ->
+                            resultStore.update(preparedBaseResult.id) { current ->
                                 current.copy(answer = answerText.toString())
                             }?.let(onStateChanged)
                         },
                         onProgressEvent = { event ->
                             progressEvents.add(event)
-                            updateHistoryResult(preparedBaseResult.id) { current ->
+                            resultStore.update(preparedBaseResult.id) { current ->
                                 current.copy(events = preparedBaseResult.events + progressEvents)
                             }?.let(onStateChanged)
                         }
@@ -130,7 +122,7 @@ internal class WorkflowTaskManager(
                 }
             }.onSuccess { result ->
                 AppDebugLogStore.i(tag, "answer task success taskId=$taskId historyId=${result.id}")
-                upsertHistory(result)
+                resultStore.upsert(result)
                 markTask(taskId, WorkflowTaskStatus.SUCCESS)
                 onStateChanged(result)
                 onFinished(Result.success(result))
@@ -142,7 +134,7 @@ internal class WorkflowTaskManager(
                 AppDebugLogStore.e(tag, "answer task failed taskId=$taskId", error)
                 baseResult?.let { base ->
                     val failed = failureResult(base, error)
-                    upsertHistory(failed)
+                    resultStore.upsert(failed)
                     onStateChanged(failed)
                 }
                 markTask(taskId, WorkflowTaskStatus.ERROR, error.message)
@@ -175,7 +167,7 @@ internal class WorkflowTaskManager(
             val startedResult = baseResult.withStartedAnswerVersionFrom(existingResult)
             val versionIndex = startedResult.answerVersions.lastIndex
             registerTask(taskId, historyId, WorkflowTaskKind.REGENERATE_ANSWER, versionIndex)
-            upsertHistory(startedResult)
+            resultStore.upsert(startedResult)
             onStateChanged(startedResult)
 
             runCatching {
@@ -184,19 +176,19 @@ internal class WorkflowTaskManager(
                         models = models,
                         capturedImages = capturedImages,
                         onOcrDelta = { text ->
-                            updateHistoryResult(historyId) { current ->
+                            resultStore.update(historyId) { current ->
                                 current.copy(extractedText = text)
                             }?.let(onStateChanged)
                         },
                         onAnswerDelta = { delta ->
                             answerText.append(delta)
-                            updateHistoryResult(historyId) { current ->
+                            resultStore.update(historyId) { current ->
                                 current.withUpdatedAnswerVersion(versionIndex, answerText.toString())
                             }?.let(onStateChanged)
                         },
                         onProgressEvent = { event ->
                             progressEvents.add(event)
-                            updateHistoryResult(historyId) { current ->
+                            resultStore.update(historyId) { current ->
                                 current.copy(events = startedResult.events + progressEvents)
                             }?.let(onStateChanged)
                         }
@@ -208,7 +200,7 @@ internal class WorkflowTaskManager(
                         progressEvents = progressEvents
                     )
                     val finalAnswer = answerText.toString().ifBlank { finished.answer }
-                    val latestResult = latestHistoryResult(historyId) ?: startedResult
+                    val latestResult = resultStore.latest(historyId) ?: startedResult
                     latestResult.copy(
                         status = ProcessingStatus.SUCCESS,
                         detail = finished.detail,
@@ -224,7 +216,7 @@ internal class WorkflowTaskManager(
                 }
             }.onSuccess { regenerated ->
                 AppDebugLogStore.i(tag, "regenerate task success taskId=$taskId historyId=$historyId")
-                upsertHistory(regenerated)
+                resultStore.upsert(regenerated)
                 markTask(taskId, WorkflowTaskStatus.SUCCESS)
                 onStateChanged(regenerated)
                 onFinished(Result.success(regenerated))
@@ -235,7 +227,7 @@ internal class WorkflowTaskManager(
                 }
                 AppDebugLogStore.e(tag, "regenerate task failed taskId=$taskId historyId=$historyId", error)
                 val failed = failureResult(startedResult, error)
-                upsertHistory(failed)
+                resultStore.upsert(failed)
                 markTask(taskId, WorkflowTaskStatus.ERROR, error.message)
                 onStateChanged(failed)
                 onFinished(Result.failure(error))
@@ -265,26 +257,26 @@ internal class WorkflowTaskManager(
                     )
                     baseResult = preparedBaseResult
                     registerTask(taskId, preparedBaseResult.id, WorkflowTaskKind.AUTOMATION)
-                    upsertHistory(preparedBaseResult)
+                    resultStore.upsert(preparedBaseResult)
                     onStateChanged(preparedBaseResult)
 
                     val workflowOutput = workflowFactory.runAutomationWorkflow(
                         models = models,
                         capturedImages = capturedImages,
                         onOcrDelta = { text ->
-                            updateHistoryResult(preparedBaseResult.id) { current ->
+                            resultStore.update(preparedBaseResult.id) { current ->
                                 current.copy(extractedText = text)
                             }?.let(onStateChanged)
                         },
                         onThoughtDelta = { delta ->
                             thoughtText.append(delta)
-                            updateHistoryResult(preparedBaseResult.id) { current ->
+                            resultStore.update(preparedBaseResult.id) { current ->
                                 current.copy(automationThought = thoughtText.toString())
                             }?.let(onStateChanged)
                         },
                         onProgressEvent = { event ->
                             progressEvents.add(event)
-                            updateHistoryResult(preparedBaseResult.id) { current ->
+                            resultStore.update(preparedBaseResult.id) { current ->
                                 current.copy(events = preparedBaseResult.events + progressEvents)
                             }?.let(onStateChanged)
                         }
@@ -300,7 +292,7 @@ internal class WorkflowTaskManager(
                 }
             }.onSuccess { automationResult ->
                 AppDebugLogStore.i(tag, "automation task success taskId=$taskId historyId=${automationResult.result.id}")
-                upsertHistory(automationResult.result)
+                resultStore.upsert(automationResult.result)
                 markTask(taskId, WorkflowTaskStatus.SUCCESS)
                 onStateChanged(automationResult.result)
                 onFinished(Result.success(automationResult))
@@ -312,7 +304,7 @@ internal class WorkflowTaskManager(
                 AppDebugLogStore.e(tag, "automation task failed taskId=$taskId", error)
                 baseResult?.let { base ->
                     val failed = failureResult(base, error)
-                    upsertHistory(failed)
+                    resultStore.upsert(failed)
                     onStateChanged(failed)
                 }
                 markTask(taskId, WorkflowTaskStatus.ERROR, error.message)
@@ -326,6 +318,36 @@ internal class WorkflowTaskManager(
     fun cancelTask(taskId: String) {
         jobs.remove(taskId)?.cancel()
         markTask(taskId, WorkflowTaskStatus.CANCELLED)
+    }
+
+    suspend fun cancelHistoryTask(historyId: String) {
+        _tasks.value.values
+            .filter { it.historyId == historyId && it.status == WorkflowTaskStatus.RUNNING }
+            .forEach { cancelTask(it.taskId) }
+    }
+
+    suspend fun removeHistoryResult(historyId: String) {
+        cancelHistoryTask(historyId)
+        resultStore.remove(historyId)
+        repository.update { current ->
+            current.copy(
+                history = current.history.filterNot { it.id == historyId },
+                lastResult = current.lastResult?.takeUnless { it.id == historyId }
+            )
+        }
+    }
+
+    suspend fun clearHistory() {
+        jobs.keys.toList().forEach(::cancelTask)
+        _tasks.value.values
+            .filter { it.status == WorkflowTaskStatus.RUNNING }
+            .forEach { markTask(it.taskId, WorkflowTaskStatus.CANCELLED) }
+        resultStore.clear()
+        repository.update { it.copy(history = emptyList(), lastResult = null) }
+    }
+
+    fun mergedHistory(persisted: List<ProcessingResult>): List<ProcessingResult> {
+        return resultStore.mergedWith(persisted)
     }
 
     private fun registerTask(
@@ -356,77 +378,6 @@ internal class WorkflowTaskManager(
         jobs[taskId] = job
         job.invokeOnCompletion {
             if (jobs[taskId] === job) jobs.remove(taskId)
-        }
-    }
-
-    private suspend fun upsertHistory(result: ProcessingResult) {
-        publishLiveResult(result)
-        persistHistory(result)
-    }
-
-    private suspend fun persistHistory(result: ProcessingResult) {
-        persistJobs.remove(result.id)?.cancel()
-        persistVersions[result.id] = (persistVersions[result.id] ?: 0L) + 1L
-        persistHistoryNow(result)
-    }
-
-    private suspend fun persistHistoryNow(result: ProcessingResult) {
-        repository.update { current ->
-            val history = listOf(result) + current.history.filterNot { it.id == result.id }
-            current.copy(lastResult = result, history = history)
-        }
-    }
-
-    private suspend fun updateHistoryResult(
-        historyId: String,
-        transform: (ProcessingResult) -> ProcessingResult
-    ): ProcessingResult? {
-        val liveResult = _liveResults.value[historyId]
-        if (liveResult != null) {
-            val updated = transform(liveResult)
-            publishLiveResult(updated)
-            schedulePersistHistory(updated)
-            return updated
-        }
-        var updated: ProcessingResult? = null
-        repository.update { current ->
-            val existing = current.history.firstOrNull { it.id == historyId }
-                ?: current.lastResult?.takeIf { it.id == historyId }
-                ?: return@update current
-            updated = transform(existing)
-            publishLiveResult(updated!!)
-            current.copy(
-                lastResult = if (current.lastResult?.id == historyId) updated else current.lastResult,
-                history = listOf(updated!!) + current.history.filterNot { it.id == historyId }
-            )
-        }
-        return updated
-    }
-
-    private suspend fun latestHistoryResult(historyId: String): ProcessingResult? {
-        _liveResults.value[historyId]?.let { return it }
-        var result: ProcessingResult? = null
-        repository.update { current ->
-            result = current.history.firstOrNull { it.id == historyId }
-                ?: current.lastResult?.takeIf { it.id == historyId }
-            current
-        }
-        return result
-    }
-
-    private fun publishLiveResult(result: ProcessingResult) {
-        _liveResults.update { current -> current + (result.id to result) }
-    }
-
-    private fun schedulePersistHistory(result: ProcessingResult) {
-        val historyId = result.id
-        val version = (persistVersions[historyId] ?: 0L) + 1L
-        persistVersions[historyId] = version
-        persistJobs.remove(historyId)?.cancel()
-        persistJobs[historyId] = scope.launch {
-            delay(250)
-            if (persistVersions[historyId] != version) return@launch
-            persistHistoryNow(_liveResults.value[historyId] ?: result)
         }
     }
 

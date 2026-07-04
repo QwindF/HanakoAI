@@ -7,6 +7,9 @@ import `fun`.kirari.hanako.network.UnifiedLLMClient
 import `fun`.kirari.hanako.network.search.SearchOrchestrator
 import `fun`.kirari.hanako.overlay.ProcessingPipeline
 import `fun`.kirari.hanako.overlay.workflow.HanakoWorkflowFactory
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 internal class WorkflowContainer(
     appContext: Context,
@@ -15,6 +18,8 @@ internal class WorkflowContainer(
     localOcrManager: LocalOcrManager,
     searchOrchestrator: SearchOrchestrator?
 ) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val historyRepository = SettingsWorkflowHistoryRepository(settingsRepository)
     val pipeline = ProcessingPipeline()
     val workflowFactory = HanakoWorkflowFactory(
         appContext = appContext,
@@ -23,9 +28,14 @@ internal class WorkflowContainer(
         searchOrchestrator = searchOrchestrator,
         pipeline = pipeline
     )
+    val resultStore = WorkflowResultStore(
+        repository = historyRepository,
+        scope = scope
+    )
     val taskManager = WorkflowTaskManager(
-        repository = settingsRepository,
-        pipeline = pipeline,
-        workflowFactory = workflowFactory
+        repository = historyRepository,
+        resultStore = resultStore,
+        workflowFactory = workflowFactory,
+        scope = scope
     )
 }

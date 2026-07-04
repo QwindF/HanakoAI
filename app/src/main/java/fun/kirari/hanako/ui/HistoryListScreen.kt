@@ -48,14 +48,14 @@ import `fun`.kirari.hanako.ui.components.SectionCard
 @Composable
 fun HistorySubScreen(
     settings: AppSettings,
-    liveResults: Map<String, ProcessingResult> = emptyMap(),
+    history: List<ProcessingResult> = settings.history,
     onClearHistory: () -> Unit,
     onDeleteHistoryItem: (String) -> Unit,
     onOpenHistoryDetail: (String) -> Unit
 ) {
     var deleteTargetId by remember { mutableStateOf<String?>(null) }
-    val historyStorageText = remember(settings.history) {
-        formatHistorySize(historyStorageBytes(settings.history))
+    val historyStorageText = remember(history) {
+        formatHistorySize(historyStorageBytes(history))
     }
 
     LazyColumn(
@@ -66,11 +66,11 @@ fun HistorySubScreen(
         item {
             HistoryListHeader(
                 storageText = historyStorageText,
-                clearEnabled = settings.history.isNotEmpty(),
+                clearEnabled = history.isNotEmpty(),
                 onClearHistory = onClearHistory
             )
         }
-        if (settings.history.isEmpty()) {
+        if (history.isEmpty()) {
             item {
                 SectionCard(title = "暂无历史") {
                     Text(
@@ -80,8 +80,7 @@ fun HistorySubScreen(
                 }
             }
         } else {
-            items(settings.history, key = { it.id }) { persistedResult ->
-                val result = liveResults[persistedResult.id] ?: persistedResult
+            items(history, key = { it.id }) { result ->
                 HistoryListItem(
                     result = result,
                     onClick = { onOpenHistoryDetail(result.id) },
@@ -92,7 +91,7 @@ fun HistorySubScreen(
         item { Spacer(modifier = Modifier.height(80.dp)) }
     }
 
-    val deleteTarget = settings.history.firstOrNull { it.id == deleteTargetId }
+    val deleteTarget = history.firstOrNull { it.id == deleteTargetId }
     if (deleteTarget != null) {
         DeleteHistoryDialog(
             result = deleteTarget,

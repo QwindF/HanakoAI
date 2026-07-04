@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -142,6 +143,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = AppSettings()
+    )
+    val mergedHistory: StateFlow<List<ProcessingResult>> = combine(
+        settings,
+        liveWorkflowResults
+    ) { settings, _ ->
+        workflowTaskManager.mergedHistory(settings.history)
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5_000),
+        initialValue = emptyList()
     )
 
     init {
@@ -460,20 +471,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun clearHistory() {
         viewModelScope.launch {
-            repository.update { it.copy(history = emptyList(), lastResult = null) }
+            workflowTaskManager.clearHistory()
         }
     }
 
     fun deleteHistoryItem(resultId: String) {
         viewModelScope.launch {
-            repository.update { current ->
-                val history = current.history.filterNot { it.id == resultId }
-                val lastResult = current.lastResult?.takeUnless { it.id == resultId }
-                current.copy(
-                    history = history,
-                    lastResult = lastResult
-                )
-            }
+            workflowTaskManager.removeHistoryResult(resultId)
         }
     }
 
