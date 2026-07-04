@@ -27,49 +27,25 @@ import `fun`.kirari.hanako.data.KirariModelTag
 import `fun`.kirari.hanako.data.KirariSettings
 import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.localocr.LocalOcrManager
-import `fun`.kirari.hanako.network.KirariAuthHandleResult
 import `fun`.kirari.hanako.data.toKirariModelTag
 import `fun`.kirari.hanako.ui.history.HistoryWorkflowController
 import `fun`.kirari.hanako.ui.history.RunningHistoryTaskUiState
 import `fun`.kirari.llm.core.RemoteModelOption
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
-
-data class KirariAccountState(
-    val displayName: String? = null,
-    val email: String? = null,
-    val subject: String? = null,
-    val loggedIn: Boolean = false,
-    val canRefresh: Boolean = false,
-    val expiresAtMillis: Long = 0L,
-    val loading: Boolean = false,
-    val errorMessage: String? = null
-)
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val tag = "HanakoMainViewModel"
     private val container = (application as HanakoApplication).container
     private val repository: SettingsRepository = container.settingsRepository
     private val localOcrManager: LocalOcrManager = container.localOcrManager
-    private val kirariAuthManager = container.kirariAuthManager
-    private val settingsStore = container.settingsStore
-
-    private val _kirariAuthMessage = MutableStateFlow<String?>(null)
-    val kirariAuthMessage: StateFlow<String?> = _kirariAuthMessage.asStateFlow()
-    private val _kirariAccountState = MutableStateFlow(KirariAccountState())
-    val kirariAccountState: StateFlow<KirariAccountState> = _kirariAccountState.asStateFlow()
-    private var kirariAccountJob: Job? = null
-    private val _kirariRedirectTarget = MutableStateFlow<String?>(null)
-    val kirariRedirectTarget: StateFlow<String?> = _kirariRedirectTarget.asStateFlow()
     val settings: StateFlow<AppSettings> = repository.settings.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -105,6 +81,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     )
     val webSearchQuotaState: StateFlow<WebSearchQuotaState> =
         webSearchQuotaController.state
+    private val kirariAuthController = KirariAuthController(
+        scope = viewModelScope,
+        settingsStore = container.settingsStore,
+        kirariAuthManager = container.kirariAuthManager,
+        settingsProvider = { settings.value },
+        clearProviderMeta = { providerRuntimeController.clearProviderMeta() }
+    )
+    val kirariAuthMessage: StateFlow<String?> = kirariAuthController.message
+    val kirariAccountState: StateFlow<KirariAccountState> = kirariAuthController.accountState
+    val kirariRedirectTarget: StateFlow<String?> = kirariAuthController.redirectTarget
 
     init {
         syncLocalOcrInstallation()
@@ -302,69 +288,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun startKirariLogin(onReady: (String) -> Unit) {
-        viewModelScope.launch {
-            runCatching {
-                val latestSettings = settingsStore.read()
-                AppDebugLogStore.i(tag, "startKirariLogin serverUrl=${latestSettings.kirari.serverUrl}")
-                kirariAuthManager.buildAuthorizationRequest(
-                    serverUrl = latestSettings.kirari.serverUrl,
-                    trustAllHttpsCertificates = latestSettings.trustAllHttpsCertificates
-                )
-            }.onSuccess { request ->
-                onReady(request.authorizationUrl)
-            }.onFailure { error ->
-                _kirariAuthMessage.value = error.message ?: "Kirari 登录准备失败"
-                updateKirariAccountState()
-            }
-        }
+        kirariAuthController.startLogin(onReady)
     }
 
     fun handleKirariRedirect(uri: Uri) {
-        if (!kirariAuthManager.matchesRedirect(uri)) return
-        viewModelScope.launch {
-            if (!kirariAuthManager.hasPendingAuthorizationSession()) {
-                AppDebugLogStore.i(tag, "ignoreKirariRedirect reason=no_pending_session")
-                return@launch
-            }
-            val result = runCatching {
-                val latestSettings = settingsStore.read()
-                AppDebugLogStore.i(tag, "handleKirariRedirect serverUrl=${latestSettings.kirari.serverUrl}")
-                kirariAuthManager.handleRedirect(
-                    redirectUri = uri,
-                    settings = latestSettings,
-                    trustAllHttpsCertificates = latestSettings.trustAllHttpsCertificates
-                )
-            }.getOrElse { error ->
-                KirariAuthHandleResult(
-                    success = false,
-                    message = error.message ?: "Kirari 登录失败"
-                )
-            }
-            _kirariAuthMessage.value = result.message
-            if (result.success) {
-                syncKirariSessionStatus(force = true)
-                _kirariRedirectTarget.value = providerDetailRoute(KIRARI_PROVIDER_ID)
-            } else {
-                updateKirariAccountState()
-            }
-        }
+        kirariAuthController.handleRedirect(uri)
     }
 
     fun consumeKirariRedirectTarget() {
-        _kirariRedirectTarget.value = null
+        kirariAuthController.consumeRedirectTarget()
     }
 
     fun logoutKirari() {
-        viewModelScope.launch {
-            kirariAuthManager.clearAuth()
-            providerRuntimeController.clearProviderMeta()
-            updateKirariAccountState()
-            _kirariAuthMessage.value = "已退出 The Kirari Network"
-        }
+        kirariAuthController.logout()
     }
 
     fun consumeKirariAuthMessage() {
-        _kirariAuthMessage.value = null
+        kirariAuthController.consumeMessage()
     }
 
     fun clearHistory() {
@@ -430,64 +370,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun hasKirariClientId(): Boolean = BuildConfig.KIRARI_OIDC_CLIENT_ID.isNotBlank()
 
     fun syncKirariSessionStatus(force: Boolean = false) {
-        kirariAccountJob?.cancel()
-        val current = settings.value.kirari
-        if (!force && current.auth.accessToken.isBlank() && current.auth.refreshToken.isBlank()) {
-            updateKirariAccountState()
-            return
-        }
-        _kirariAccountState.value = current.toKirariAccountState(
-            loading = true,
-            errorMessage = null
-        )
-        kirariAccountJob = viewModelScope.launch {
-            val result = kirariAuthManager.refreshSessionStatus(
-                settings = settings.value,
-                trustAllHttpsCertificates = settings.value.trustAllHttpsCertificates
-            )
-            if (!isActive) return@launch
-            if (result.authenticated) {
-                updateKirariAccountState(errorMessage = null)
-            } else {
-                _kirariAccountState.value = settings.value.kirari.toKirariAccountState(
-                    loading = false,
-                    errorMessage = result.errorMessage
-                )
-            }
-        }
-    }
-
-    private fun updateKirariAccountState(
-        loading: Boolean = false,
-        errorMessage: String? = null
-    ) {
-        _kirariAccountState.value = settings.value.kirari.toKirariAccountState(
-            loading = loading,
-            errorMessage = errorMessage
-        )
-    }
-
-    private fun KirariSettings.toKirariAccountState(
-        loading: Boolean = false,
-        errorMessage: String? = null
-    ): KirariAccountState {
-        val auth = auth
-        val profile = profile
-        val now = System.currentTimeMillis()
-        return KirariAccountState(
-            displayName = profile.name.ifBlank {
-                profile.preferredUsername.ifBlank {
-                    profile.nickname.ifBlank { null }
-                }
-            },
-            email = profile.email.ifBlank { null },
-            subject = profile.subject.ifBlank { null },
-            loggedIn = auth.accessToken.isNotBlank() && auth.accessTokenExpiresAtMillis > now,
-            canRefresh = auth.refreshToken.isNotBlank(),
-            expiresAtMillis = auth.accessTokenExpiresAtMillis,
-            loading = loading,
-            errorMessage = errorMessage
-        )
+        kirariAuthController.syncSessionStatus(force)
     }
 
     private fun remapSelection(
