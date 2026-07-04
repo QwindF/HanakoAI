@@ -6,7 +6,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import `fun`.kirari.hanako.AppContainer
-import `fun`.kirari.hanako.automation.BubbleEvent
 import `fun`.kirari.hanako.automation.BubbleMenuItem
 import `fun`.kirari.hanako.automation.BubbleState
 import `fun`.kirari.hanako.automation.BubbleStateMachine
@@ -52,6 +51,20 @@ internal class OverlayViewModel(
         pipeline = pipeline,
         workflowTaskManager = workflowTaskManager,
         bubbleStateMachine = bubbleStateMachine
+    )
+    private val interactionController = OverlayInteractionController(
+        uiState = _uiState,
+        bubbleStateMachine = bubbleStateMachine,
+        openCropSheet = ::openCropSheet,
+        capturePage = ::capturePage,
+        sendCaptures = ::sendCaptures,
+        exitMultiPageCaptureMode = ::exitMultiPageCaptureMode,
+        cancelActiveProcessing = autoProcessingController::cancelActiveProcessing,
+        enterMultiPageCaptureMode = ::enterMultiPageCaptureMode,
+        isBubbleMenuEnabled = { _uiState.value.settings.automation.bubbleMenuEnabled },
+        toggleProcessingRoute = ::toggleProcessingRoute,
+        toggleWebSearch = ::toggleWebSearch,
+        openSettings = { openMainActivity(appContext) }
     )
 
     init {
@@ -279,33 +292,15 @@ internal class OverlayViewModel(
     }
 
     fun consumeAutoCompletedState() {
-        val currentState = bubbleStateMachine.currentState
-        AppDebugLogStore.d(tag, "consumeAutoCompletedState state=${_uiState.value.autoRunState} bubble=${currentState::class.simpleName}")
-        
-        if (_uiState.value.launchMode == OverlayLaunchMode.AUTO && _uiState.value.autoRunState == AutoRunState.COMPLETED) {
-            if (currentState is BubbleState.Copied ||
-                (_uiState.value.settings.automation.staticModeEnabled && currentState is BubbleState.ShowingLetters)
-            ) {
-                _uiState.update { it.copy(autoRunState = AutoRunState.IDLE, pendingVibrationLetters = null) }
-                bubbleStateMachine.forceState(BubbleState.Idle)
-            } else {
-                _uiState.update { it.copy(autoRunState = AutoRunState.IDLE, pendingVibrationLetters = null) }
-            }
-        }
+        interactionController.consumeAutoCompletedState()
     }
 
     fun consumePendingVibrationLetters() {
-        _uiState.update { it.copy(pendingVibrationLetters = null) }
+        interactionController.consumePendingVibrationLetters()
     }
 
     fun onBubbleTappedAfterLettersShown() {
-        val currentState = bubbleStateMachine.currentState
-        AppDebugLogStore.i(tag, "onBubbleTappedAfterLettersShown launchMode=${_uiState.value.launchMode} bubble=${currentState::class.simpleName}")
-        
-        if (_uiState.value.launchMode == OverlayLaunchMode.AUTO && currentState is BubbleState.ShowingLetters) {
-            AppDebugLogStore.i(tag, "onBubbleTappedAfterLettersShown clearing letters and entering pending reset")
-            bubbleStateMachine.dispatch(BubbleEvent.SingleTap)
-        }
+        interactionController.onBubbleTappedAfterLettersShown()
     }
 
     // 多页截图相关方法
@@ -358,32 +353,7 @@ internal class OverlayViewModel(
      * 处理单击事件（根据当前状态决定行为）
      */
     fun handleSingleTap() {
-        val currentState = bubbleStateMachine.currentState
-        AppDebugLogStore.i(tag, "handleSingleTap state=${currentState::class.simpleName}")
-
-        when (currentState) {
-            is BubbleState.MenuExpanded -> {
-                bubbleStateMachine.dispatch(BubbleEvent.CloseMenu)
-            }
-            is BubbleState.MultiPageCapture -> {
-                capturePage()
-            }
-            is BubbleState.MultiPageCapturing -> {
-                AppDebugLogStore.i(tag, "handleSingleTap ignored, capturing in progress")
-            }
-            is BubbleState.MultiPageCaptureSuccess -> {
-                AppDebugLogStore.i(tag, "handleSingleTap ignored, showing capture success")
-            }
-            is BubbleState.Copied -> {
-                bubbleStateMachine.dispatch(BubbleEvent.SingleTap)
-            }
-            is BubbleState.Error -> {
-                bubbleStateMachine.dispatch(BubbleEvent.SingleTap)
-            }
-            else -> {
-                openCropSheet()
-            }
-        }
+        interactionController.handleSingleTap()
     }
 
     /**
@@ -393,36 +363,7 @@ internal class OverlayViewModel(
      * - Processing 等：展开扇形菜单
      */
     fun handleLongPress(anchorX: Int = 0, anchorY: Int = 0) {
-        val currentState = bubbleStateMachine.currentState
-        AppDebugLogStore.i(tag, "handleLongPress state=${currentState::class.simpleName} anchor=($anchorX,$anchorY)")
-
-        when (currentState) {
-            is BubbleState.MultiPageCapture -> {
-                if (currentState.capturedBitmaps.isNotEmpty()) {
-                    sendCaptures()
-                }
-            }
-            is BubbleState.MultiPageCapturing -> {
-                AppDebugLogStore.i(tag, "handleLongPress ignored, capturing in progress")
-            }
-            is BubbleState.MultiPageCaptureSuccess -> {
-                if (currentState.capturedBitmaps.isNotEmpty()) {
-                    sendCaptures()
-                }
-            }
-            is BubbleState.MenuExpanded -> {
-                bubbleStateMachine.dispatch(BubbleEvent.CloseMenu)
-            }
-            is BubbleState.Idle, is BubbleState.ShowingLetters,
-            is BubbleState.Copied, is BubbleState.Error -> {
-                enterMultiPageCaptureMode()
-            }
-            else -> {
-                if (isBubbleMenuEnabled()) {
-                    bubbleStateMachine.dispatch(BubbleEvent.LongPress(anchorX, anchorY))
-                }
-            }
-        }
+        interactionController.handleLongPress(anchorX, anchorY)
     }
 
     /**
@@ -432,66 +373,21 @@ internal class OverlayViewModel(
      * - Idle/ShowingLetters/Copied/Error：展开扇形菜单
      */
     fun handleDoubleTap(anchorX: Int = 0, anchorY: Int = 0) {
-        val currentState = bubbleStateMachine.currentState
-        AppDebugLogStore.i(tag, "handleDoubleTap state=${currentState::class.simpleName}")
-
-        when (currentState) {
-            is BubbleState.MultiPageCapture,
-            is BubbleState.MultiPageCapturing,
-            is BubbleState.MultiPageCaptureSuccess -> {
-                exitMultiPageCaptureMode()
-            }
-            is BubbleState.Processing -> {
-                autoProcessingController.cancelActiveProcessing()
-            }
-            is BubbleState.Idle,
-            is BubbleState.ShowingLetters,
-            is BubbleState.Copied,
-            is BubbleState.Error -> {
-                if (isBubbleMenuEnabled()) {
-                    bubbleStateMachine.dispatch(BubbleEvent.LongPress(anchorX, anchorY))
-                }
-            }
-            is BubbleState.MenuExpanded -> {
-                bubbleStateMachine.dispatch(BubbleEvent.CloseMenu)
-            }
-            else -> {}
-        }
+        interactionController.handleDoubleTap(anchorX, anchorY)
     }
 
     /**
      * 菜单关闭后的回调
      */
     fun onMenuDismissed() {
-        val currentState = bubbleStateMachine.currentState
-        if (currentState is BubbleState.MenuExpanded) {
-            bubbleStateMachine.dispatch(BubbleEvent.CloseMenu)
-        }
-    }
-
-    private fun isBubbleMenuEnabled(): Boolean {
-        return _uiState.value.settings.automation.bubbleMenuEnabled
+        interactionController.onMenuDismissed()
     }
 
     /**
      * 处理菜单项点击
      */
     fun handleMenuSelect(item: BubbleMenuItem) {
-        AppDebugLogStore.i(tag, "handleMenuSelect item=$item")
-        when (item) {
-            BubbleMenuItem.ToggleRoute -> toggleProcessingRoute()
-            BubbleMenuItem.ToggleSearch -> toggleWebSearch()
-            BubbleMenuItem.Settings -> {
-                `fun`.kirari.hanako.overlay.openMainActivity(appContext)
-            }
-            BubbleMenuItem.VoiceRecognition -> {
-                // 语音功能暂未实现
-            }
-        }
-        // 不在此处 dispatch CloseMenu。
-        // 状态恢复统一由退场动画结束后的 onMenuDismissed() 处理，
-        // 否则 Compose 会立刻移除 BubbleMenu 导致退场动画被取消、
-        // overlay 窗口残留拦截触摸事件。
+        interactionController.handleMenuSelect(item)
     }
 
     fun toggleWebSearch() {
