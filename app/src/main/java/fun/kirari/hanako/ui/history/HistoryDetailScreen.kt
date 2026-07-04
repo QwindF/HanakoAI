@@ -1,4 +1,4 @@
-package `fun`.kirari.hanako.ui
+package `fun`.kirari.hanako.ui.history
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -47,6 +47,9 @@ import `fun`.kirari.hanako.data.latestAnswerText
 import `fun`.kirari.hanako.data.decodeHistoryBitmap
 import `fun`.kirari.hanako.data.loadHistoryBitmap
 import `fun`.kirari.hanako.overlay.MarkdownLatexText
+import `fun`.kirari.hanako.ui.AnswerActionBar
+import `fun`.kirari.hanako.ui.AnswerSwitchDirection
+import `fun`.kirari.hanako.ui.AnimatedAnswerVersionContent
 import `fun`.kirari.hanako.ui.components.ImagePreviewOverlay
 import kotlin.math.roundToInt
 

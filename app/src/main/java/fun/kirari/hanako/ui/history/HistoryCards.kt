@@ -1,4 +1,4 @@
-package `fun`.kirari.hanako.ui
+package `fun`.kirari.hanako.ui.history
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column

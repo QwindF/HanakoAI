@@ -1,4 +1,4 @@
-package `fun`.kirari.hanako.ui
+package `fun`.kirari.hanako.ui.history
 
 import `fun`.kirari.hanako.data.AutomationActionRecord
 import `fun`.kirari.hanako.data.AutomationActionType

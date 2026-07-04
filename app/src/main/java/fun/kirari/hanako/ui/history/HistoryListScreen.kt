@@ -1,6 +1,6 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 
-package `fun`.kirari.hanako.ui
+package `fun`.kirari.hanako.ui.history
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.combinedClickable

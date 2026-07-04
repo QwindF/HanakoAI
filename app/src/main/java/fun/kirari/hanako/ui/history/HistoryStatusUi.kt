@@ -1,4 +1,4 @@
-package `fun`.kirari.hanako.ui
+package `fun`.kirari.hanako.ui.history
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable

@@ -57,6 +57,8 @@ import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.overlay.OverlayLaunchMode
 import `fun`.kirari.hanako.overlay.OverlayRuntimeState
 import `fun`.kirari.hanako.overlay.OverlayService
+import `fun`.kirari.hanako.ui.history.HistoryDetailScreen
+import `fun`.kirari.hanako.ui.history.HistorySubScreen
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
