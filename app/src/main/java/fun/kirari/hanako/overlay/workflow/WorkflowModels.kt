@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import `fun`.kirari.hanako.automation.AutomationResult
 import `fun`.kirari.hanako.data.ProcessingCheckpointSummary
 import `fun`.kirari.hanako.network.search.SearchOutcome
-import `fun`.kirari.hanako.overlay.ProcessingPipeline
+import `fun`.kirari.hanako.overlay.workflow.ProcessingPipeline
 import `fun`.kirari.hanako.workflow.WorkflowCheckpoint
 
 internal data class CapturedImages(

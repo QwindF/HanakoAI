@@ -12,7 +12,7 @@ import `fun`.kirari.hanako.data.ProcessingStatus
 import `fun`.kirari.hanako.data.WebSearchSettings
 import `fun`.kirari.hanako.data.defaultAssistant
 import `fun`.kirari.hanako.data.defaultProvider
-import `fun`.kirari.hanako.overlay.ProcessingPipeline
+import `fun`.kirari.hanako.overlay.workflow.ProcessingPipeline
 import `fun`.kirari.hanako.overlay.workflow.AnswerNodeOutput
 import `fun`.kirari.hanako.overlay.workflow.AnswerWorkflowOutput
 import `fun`.kirari.hanako.overlay.workflow.AutomationNodeOutput

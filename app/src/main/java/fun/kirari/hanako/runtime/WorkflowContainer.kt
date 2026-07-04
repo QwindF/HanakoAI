@@ -5,7 +5,7 @@ import `fun`.kirari.hanako.data.SettingsRepository
 import `fun`.kirari.hanako.localocr.LocalOcrManager
 import `fun`.kirari.hanako.network.UnifiedLLMClient
 import `fun`.kirari.hanako.network.search.SearchOrchestrator
-import `fun`.kirari.hanako.overlay.ProcessingPipeline
+import `fun`.kirari.hanako.overlay.workflow.ProcessingPipeline
 import `fun`.kirari.hanako.overlay.workflow.HanakoWorkflowFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

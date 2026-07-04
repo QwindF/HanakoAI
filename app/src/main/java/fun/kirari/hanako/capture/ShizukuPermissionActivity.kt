@@ -6,8 +6,8 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
-import `fun`.kirari.hanako.overlay.OverlayLaunchMode
-import `fun`.kirari.hanako.overlay.OverlayService
+import `fun`.kirari.hanako.overlay.state.OverlayLaunchMode
+import `fun`.kirari.hanako.overlay.service.OverlayService
 import rikka.shizuku.Shizuku
 
 class ShizukuPermissionActivity : ComponentActivity() {

@@ -46,11 +46,11 @@ import `fun`.kirari.hanako.data.displayedAnswerVersions
 import `fun`.kirari.hanako.data.latestAnswerText
 import `fun`.kirari.hanako.data.decodeHistoryBitmap
 import `fun`.kirari.hanako.data.loadHistoryBitmap
-import `fun`.kirari.hanako.overlay.MarkdownLatexText
-import `fun`.kirari.hanako.ui.AnswerActionBar
-import `fun`.kirari.hanako.ui.AnswerSwitchDirection
-import `fun`.kirari.hanako.ui.AnimatedAnswerVersionContent
-import `fun`.kirari.hanako.ui.components.ImagePreviewOverlay
+import `fun`.kirari.hanako.overlay.text.MarkdownLatexText
+import `fun`.kirari.hanako.ui.answer.AnswerActionBar
+import `fun`.kirari.hanako.ui.answer.AnswerSwitchDirection
+import `fun`.kirari.hanako.ui.answer.AnimatedAnswerVersionContent
+import `fun`.kirari.hanako.ui.image.ImagePreviewOverlay
 import kotlin.math.roundToInt
 
 @Composable

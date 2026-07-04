@@ -8,8 +8,8 @@ import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.ProcessingStatus
 import `fun`.kirari.hanako.data.displayedAnswerVersions
 import `fun`.kirari.hanako.debug.AppDebugLogStore
-import `fun`.kirari.hanako.overlay.OverlayUiState
-import `fun`.kirari.hanako.overlay.ProcessingPipeline
+import `fun`.kirari.hanako.overlay.state.OverlayUiState
+import `fun`.kirari.hanako.overlay.workflow.ProcessingPipeline
 import `fun`.kirari.hanako.overlay.workflow.HanakoWorkflowEngine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

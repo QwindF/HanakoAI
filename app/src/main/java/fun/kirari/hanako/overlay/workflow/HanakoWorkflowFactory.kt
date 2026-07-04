@@ -13,7 +13,7 @@ import `fun`.kirari.hanako.localocr.LocalOcrManager
 import `fun`.kirari.hanako.network.UnifiedLLMClient
 import `fun`.kirari.hanako.network.search.SearchContext
 import `fun`.kirari.hanako.network.search.SearchOrchestrator
-import `fun`.kirari.hanako.overlay.ProcessingPipeline
+import `fun`.kirari.hanako.overlay.workflow.ProcessingPipeline
 import `fun`.kirari.hanako.workflow.WorkflowContext
 import `fun`.kirari.hanako.workflow.WorkflowRunner
 

@@ -16,8 +16,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import `fun`.kirari.hanako.overlay.OverlayLaunchMode
-import `fun`.kirari.hanako.overlay.OverlayService
+import `fun`.kirari.hanako.overlay.state.OverlayLaunchMode
+import `fun`.kirari.hanako.overlay.service.OverlayService
 
 class ProjectionPermissionActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {

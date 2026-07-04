@@ -5,8 +5,8 @@ import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.SettingsRepository
 import `fun`.kirari.hanako.data.loadHistoryBitmaps
 import `fun`.kirari.hanako.debug.AppDebugLogStore
-import `fun`.kirari.hanako.overlay.OverlayUiState
-import `fun`.kirari.hanako.overlay.ProcessingPipeline
+import `fun`.kirari.hanako.overlay.state.OverlayUiState
+import `fun`.kirari.hanako.overlay.workflow.ProcessingPipeline
 import `fun`.kirari.hanako.runtime.WorkflowTaskManager
 import `fun`.kirari.hanako.runtime.WorkflowTaskStatus
 import kotlinx.coroutines.CoroutineScope

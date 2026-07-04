@@ -3,7 +3,7 @@ package `fun`.kirari.hanako.automation
 import android.content.Context
 import android.graphics.Color
 import `fun`.kirari.hanako.R
-import `fun`.kirari.hanako.overlay.OverlayLaunchMode
+import `fun`.kirari.hanako.overlay.state.OverlayLaunchMode
 
 /**
  * 悬浮球视觉表现数据类

@@ -4,7 +4,7 @@ import android.graphics.Bitmap
 import `fun`.kirari.hanako.data.AutomationActionRecord
 import `fun`.kirari.hanako.data.ProcessingEvent
 import `fun`.kirari.hanako.data.ProcessingResult
-import `fun`.kirari.hanako.overlay.ProcessingPipeline
+import `fun`.kirari.hanako.overlay.workflow.ProcessingPipeline
 
 internal interface HanakoWorkflowEngine {
     suspend fun prepareBaseResult(
