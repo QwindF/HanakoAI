@@ -27,13 +27,12 @@ import `fun`.kirari.hanako.data.KirariModelTag
 import `fun`.kirari.hanako.data.KirariSettings
 import `fun`.kirari.hanako.data.SearchProviderKind
 import `fun`.kirari.hanako.data.availableProviders
-import `fun`.kirari.hanako.data.loadHistoryBitmaps
 import `fun`.kirari.hanako.localocr.LocalOcrManager
 import `fun`.kirari.hanako.network.ProviderModelsApi
 import `fun`.kirari.hanako.network.KirariAuthHandleResult
 import `fun`.kirari.hanako.data.toKirariModelTag
-import `fun`.kirari.hanako.overlay.OverlayUiState
-import `fun`.kirari.hanako.runtime.WorkflowTaskStatus
+import `fun`.kirari.hanako.ui.history.HistoryWorkflowController
+import `fun`.kirari.hanako.ui.history.RunningHistoryTaskUiState
 import `fun`.kirari.llm.core.ProviderUsageSummary
 import `fun`.kirari.llm.core.RemoteModelOption
 import kotlinx.coroutines.Dispatchers
@@ -42,8 +41,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -89,11 +86,6 @@ data class WebSearchQuotaState(
     val errorMessage: String = ""
 )
 
-data class RunningHistoryTaskUiState(
-    val historyId: String,
-    val answerVersionIndex: Int? = null
-)
-
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val tag = "HanakoMainViewModel"
     private val container = (application as HanakoApplication).container
@@ -103,8 +95,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val tavilyUsageApi = container.tavilyUsageApi
     private val kirariAuthManager = container.kirariAuthManager
     private val settingsStore = container.settingsStore
-    private val processingPipeline = container.workflow.pipeline
-    private val workflowTaskManager = container.workflow.taskManager
 
     val connectionTestManager = ConnectionTestManager()
     private val connectionTestJobs = mutableMapOf<String, Job>()
@@ -121,39 +111,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _webSearchQuotaState = MutableStateFlow(WebSearchQuotaState())
     val webSearchQuotaState: StateFlow<WebSearchQuotaState> = _webSearchQuotaState.asStateFlow()
     private var webSearchQuotaJob: Job? = null
-    val runningHistoryTasks: StateFlow<Map<String, RunningHistoryTaskUiState>> = workflowTaskManager.tasks
-        .map { tasks ->
-            tasks.values
-                .filter { it.status == WorkflowTaskStatus.RUNNING }
-                .associate { task ->
-                    task.historyId to RunningHistoryTaskUiState(
-                        historyId = task.historyId,
-                        answerVersionIndex = task.answerVersionIndex
-                    )
-                }
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = emptyMap()
-        )
-    val liveWorkflowResults: StateFlow<Map<String, ProcessingResult>> = workflowTaskManager.liveResults
 
     val settings: StateFlow<AppSettings> = repository.settings.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = AppSettings()
     )
-    val mergedHistory: StateFlow<List<ProcessingResult>> = combine(
-        settings,
-        liveWorkflowResults
-    ) { settings, _ ->
-        workflowTaskManager.mergedHistory(settings.history)
-    }.stateIn(
+    private val historyWorkflowController = HistoryWorkflowController(
         scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = emptyList()
+        repository = repository,
+        settings = settings,
+        processingPipeline = container.workflow.pipeline,
+        workflowTaskManager = container.workflow.taskManager
     )
+    val runningHistoryTasks: StateFlow<Map<String, RunningHistoryTaskUiState>> =
+        historyWorkflowController.runningHistoryTasks
+    val liveWorkflowResults: StateFlow<Map<String, ProcessingResult>> =
+        historyWorkflowController.liveWorkflowResults
+    val mergedHistory: StateFlow<List<ProcessingResult>> =
+        historyWorkflowController.mergedHistory
 
     init {
         syncLocalOcrInstallation()
@@ -470,43 +446,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun clearHistory() {
-        viewModelScope.launch {
-            workflowTaskManager.clearHistory()
-        }
+        historyWorkflowController.clearHistory()
     }
 
     fun deleteHistoryItem(resultId: String) {
-        viewModelScope.launch {
-            workflowTaskManager.removeHistoryResult(resultId)
-        }
+        historyWorkflowController.deleteHistoryItem(resultId)
     }
 
     fun saveResult(result: ProcessingResult) {
-        viewModelScope.launch {
-            repository.update { it.copy(
-                lastResult = result,
-                history = listOf(result) + it.history
-            ) }
-        }
+        historyWorkflowController.saveResult(result)
     }
 
     fun regenerateHistoryResult(resultId: String) {
-        val existing = settings.value.history.firstOrNull { it.id == resultId } ?: return
-        if (existing.automationAction != null) return
-        if (workflowTaskManager.isRunning(resultId)) return
-        val bitmaps = existing.loadHistoryBitmaps()
-        if (bitmaps.isEmpty()) return
-        val models = runCatching {
-            processingPipeline.resolveModels(OverlayUiState(settings = settings.value))
-        }.getOrElse { error ->
-            AppDebugLogStore.e(tag, "regenerateHistoryResult resolve models failed id=$resultId", error)
-            return
-        }
-        workflowTaskManager.startRegenerateAnswerTask(
-            existingResult = existing,
-            models = models,
-            bitmaps = bitmaps
-        )
+        historyWorkflowController.regenerateHistoryResult(resultId)
     }
 
     fun testProviderConnection(provider: ModelProviderConfig) {
