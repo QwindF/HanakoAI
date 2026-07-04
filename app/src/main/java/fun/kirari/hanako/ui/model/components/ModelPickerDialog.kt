@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -188,7 +189,8 @@ internal fun ModelPickerDialog(
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("搜索模型") },
                     placeholder = { Text("按名称或 ID 搜索") },
-                    singleLine = true
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
                 )
 
                 ModelPickerListContent(

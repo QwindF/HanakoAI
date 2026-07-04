@@ -88,7 +88,7 @@ private fun KirariServerUrlField(
         )
     } else {
         Surface(
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceContainerLow
         ) {
             Text(

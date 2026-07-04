@@ -24,6 +24,7 @@ import android.net.Uri
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.core.app.NotificationManagerCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -89,6 +90,9 @@ fun HanakoApp(viewModel: MainViewModel) {
     val context = LocalContext.current
     val overlayEnabled by OverlayRuntimeState.running.collectAsState()
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var hasNotificationPermission by remember {
+        mutableStateOf(NotificationManagerCompat.from(context).areNotificationsEnabled())
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
     var modelSelectionDialogState by remember { mutableStateOf(ModelSelectionDialogState()) }
     val providerModelsApi = remember { HanakoApplication.instance.container.providerModelsApi }
@@ -118,6 +122,7 @@ fun HanakoApp(viewModel: MainViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 hasOverlayPermission = Settings.canDrawOverlays(context)
+                hasNotificationPermission = NotificationManagerCompat.from(context).areNotificationsEnabled()
             }
         }
 
@@ -362,8 +367,8 @@ fun HanakoApp(viewModel: MainViewModel) {
                         settings = settings,
                         onAddAssistant = viewModel::addAssistant,
                         onDeleteAssistant = viewModel::deleteAssistant,
+                        onSelectAssistant = viewModel::selectAssistant,
                         onOpenAssistant = { assistantId ->
-                            viewModel.selectAssistant(assistantId)
                             navController.navigate(assistantDetailRoute(assistantId))
                         }
                     )
@@ -387,9 +392,24 @@ fun HanakoApp(viewModel: MainViewModel) {
                         trustAllHttpsCertificates = settings.trustAllHttpsCertificates,
                         kirariSettings = settings.kirari,
                         hasKirariClientId = viewModel.hasKirariClientId(),
+                        hasNotificationPermission = hasNotificationPermission,
                         onToggleCompletionNotification = { enabled ->
                             viewModel.updateAutomationSettings {
                                 it.copy(completionNotificationEnabled = enabled)
+                            }
+                        },
+                        onOpenNotificationPermission = {
+                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                            runCatching {
+                                context.startActivity(intent)
+                            }.onFailure {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                        Uri.parse("package:${context.packageName}")
+                                    )
+                                )
                             }
                         },
                         onToggleStaticMode = { enabled ->

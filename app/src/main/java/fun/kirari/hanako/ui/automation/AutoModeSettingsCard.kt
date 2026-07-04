@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Timer
@@ -26,8 +27,10 @@ import `fun`.kirari.hanako.data.AutomationSettings
 internal fun AutoModeSettingsCard(
     automationSettings: AutomationSettings,
     timeoutInput: String,
+    hasNotificationPermission: Boolean,
     onTimeoutInputChange: (String) -> Unit,
     onToggleCompletionNotification: (Boolean) -> Unit,
+    onOpenNotificationPermission: () -> Unit,
     onToggleStaticMode: (Boolean) -> Unit,
     onNavigateStaticVibrationSettings: () -> Unit,
     onUpdateTimeoutSeconds: (Int) -> Unit
@@ -38,9 +41,19 @@ internal fun AutoModeSettingsCard(
     ) {
         SwitchSettingRow(
             title = "完成后发送通知",
-            subtitle = "处理完成后发送系统通知。",
+            subtitle = if (hasNotificationPermission) {
+                "处理完成后发送系统通知。"
+            } else {
+                "当前未授予 Hanako 通知权限"
+            },
             checked = automationSettings.completionNotificationEnabled,
-            onCheckedChange = onToggleCompletionNotification
+            onCheckedChange = onToggleCompletionNotification,
+            onTextClick = onOpenNotificationPermission,
+            subtitleColor = if (hasNotificationPermission) {
+                null
+            } else {
+                MaterialTheme.colorScheme.primary
+            }
         )
         SwitchSettingRow(
             title = "静态模式",
@@ -96,7 +109,8 @@ private fun TimeoutField(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             label = { Text("秒") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            shape = RoundedCornerShape(12.dp)
         )
         Text(
             "默认 30 秒。",

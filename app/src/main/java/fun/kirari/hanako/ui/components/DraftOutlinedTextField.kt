@@ -2,6 +2,7 @@ package `fun`.kirari.hanako.ui.components
 
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -15,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -25,7 +27,14 @@ fun DraftOutlinedTextField(
     onCommit: (String) -> Unit,
     label: String,
     minLines: Int = 1,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    singleLine: Boolean = minLines == 1,
+    placeholder: (@Composable () -> Unit)? = null,
+    leadingIcon: (@Composable () -> Unit)? = null,
+    trailingIcon: (@Composable () -> Unit)? = null,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    readOnly: Boolean = false
 ) {
     var textFieldValue by rememberSaveable(fieldKey, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(value, TextRange(value.length)))
@@ -47,7 +56,11 @@ fun DraftOutlinedTextField(
 
     OutlinedTextField(
         value = textFieldValue,
-        onValueChange = { textFieldValue = it },
+        onValueChange = {
+            if (!readOnly) {
+                textFieldValue = it
+            }
+        },
         modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { focusState ->
@@ -57,7 +70,14 @@ fun DraftOutlinedTextField(
                 }
             },
         minLines = minLines,
+        singleLine = singleLine,
         label = { Text(label) },
-        shape = RoundedCornerShape(16.dp)
+        placeholder = placeholder,
+        leadingIcon = leadingIcon,
+        trailingIcon = trailingIcon,
+        visualTransformation = visualTransformation,
+        keyboardOptions = keyboardOptions,
+        readOnly = readOnly,
+        shape = RoundedCornerShape(12.dp)
     )
 }

@@ -38,7 +38,9 @@ fun MoreSettingsScreen(
     trustAllHttpsCertificates: Boolean,
     kirariSettings: KirariSettings,
     hasKirariClientId: Boolean,
+    hasNotificationPermission: Boolean,
     onToggleCompletionNotification: (Boolean) -> Unit,
+    onOpenNotificationPermission: () -> Unit,
     onToggleStaticMode: (Boolean) -> Unit,
     onNavigateStaticVibrationSettings: () -> Unit,
     onUpdateAutomationSettings: (AutomationSettings) -> Unit,
@@ -105,8 +107,10 @@ fun MoreSettingsScreen(
                 AutoModeSettingsCard(
                     automationSettings = automationSettings,
                     timeoutInput = timeoutInput,
+                    hasNotificationPermission = hasNotificationPermission,
                     onTimeoutInputChange = { timeoutInput = it },
                     onToggleCompletionNotification = onToggleCompletionNotification,
+                    onOpenNotificationPermission = onOpenNotificationPermission,
                     onToggleStaticMode = onToggleStaticMode,
                     onNavigateStaticVibrationSettings = onNavigateStaticVibrationSettings,
                     onUpdateTimeoutSeconds = onUpdateTimeoutSeconds

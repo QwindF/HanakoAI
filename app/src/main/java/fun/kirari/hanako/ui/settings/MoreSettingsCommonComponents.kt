@@ -20,6 +20,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -81,7 +82,8 @@ internal fun SwitchSettingRow(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    onTextClick: (() -> Unit)? = null
+    onTextClick: (() -> Unit)? = null,
+    subtitleColor: Color? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -102,7 +104,7 @@ internal fun SwitchSettingRow(
             Text(
                 subtitle,
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = subtitleColor ?: MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
         Switch(
