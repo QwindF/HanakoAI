@@ -69,7 +69,7 @@
         </activity>
 
         <service
-            android:name=".overlay.OverlayService"
+            android:name=".overlay.service.OverlayService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
