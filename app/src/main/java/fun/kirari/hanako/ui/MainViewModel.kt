@@ -28,12 +28,10 @@ import `fun`.kirari.hanako.data.KirariSettings
 import `fun`.kirari.hanako.data.SearchProviderKind
 import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.localocr.LocalOcrManager
-import `fun`.kirari.hanako.network.ProviderModelsApi
 import `fun`.kirari.hanako.network.KirariAuthHandleResult
 import `fun`.kirari.hanako.data.toKirariModelTag
 import `fun`.kirari.hanako.ui.history.HistoryWorkflowController
 import `fun`.kirari.hanako.ui.history.RunningHistoryTaskUiState
-import `fun`.kirari.llm.core.ProviderUsageSummary
 import `fun`.kirari.llm.core.RemoteModelOption
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,23 +44,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
-
-enum class ConnectionTestStatus {
-    IDLE, TESTING, SUCCESS, FAILED
-}
-
-data class ConnectionTestState(
-    val status: ConnectionTestStatus = ConnectionTestStatus.IDLE,
-    val latencyMs: Long = 0,
-    val errorMessage: String = ""
-)
-
-data class ProviderMetaState(
-    val loading: Boolean = false,
-    val models: List<RemoteModelOption> = emptyList(),
-    val usageSummary: ProviderUsageSummary? = null,
-    val errorMessage: String? = null
-)
 
 data class KirariAccountState(
     val displayName: String? = null,
@@ -91,18 +72,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as HanakoApplication).container
     private val repository: SettingsRepository = container.settingsRepository
     private val localOcrManager: LocalOcrManager = container.localOcrManager
-    private val providerModelsApi = container.providerModelsApi
     private val tavilyUsageApi = container.tavilyUsageApi
     private val kirariAuthManager = container.kirariAuthManager
     private val settingsStore = container.settingsStore
 
-    val connectionTestManager = ConnectionTestManager()
-    private val connectionTestJobs = mutableMapOf<String, Job>()
     private val _kirariAuthMessage = MutableStateFlow<String?>(null)
     val kirariAuthMessage: StateFlow<String?> = _kirariAuthMessage.asStateFlow()
-    private val _providerMetaState = MutableStateFlow(ProviderMetaState())
-    val providerMetaState: StateFlow<ProviderMetaState> = _providerMetaState.asStateFlow()
-    private var providerMetaJob: Job? = null
     private val _kirariAccountState = MutableStateFlow(KirariAccountState())
     val kirariAccountState: StateFlow<KirariAccountState> = _kirariAccountState.asStateFlow()
     private var kirariAccountJob: Job? = null
@@ -130,6 +105,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         historyWorkflowController.liveWorkflowResults
     val mergedHistory: StateFlow<List<ProcessingResult>> =
         historyWorkflowController.mergedHistory
+    private val providerRuntimeController = ProviderRuntimeController(
+        scope = viewModelScope,
+        settings = settings,
+        providerModelsApi = container.providerModelsApi,
+        refreshKirariSession = { syncKirariSessionStatus(force = true) }
+    )
+    val connectionTestManager: ConnectionTestManager =
+        providerRuntimeController.connectionTestManager
+    val providerMetaState: StateFlow<ProviderMetaState> =
+        providerRuntimeController.providerMetaState
 
     init {
         syncLocalOcrInstallation()
@@ -434,8 +419,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun logoutKirari() {
         viewModelScope.launch {
             kirariAuthManager.clearAuth()
-            providerMetaJob?.cancel()
-            _providerMetaState.value = ProviderMetaState()
+            providerRuntimeController.clearProviderMeta()
             updateKirariAccountState()
             _kirariAuthMessage.value = "已退出 The Kirari Network"
         }
@@ -462,99 +446,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun testProviderConnection(provider: ModelProviderConfig) {
-        val providerId = provider.id
-        connectionTestJobs[providerId]?.cancel()
-        connectionTestManager.setState(providerId, ConnectionTestState(status = ConnectionTestStatus.TESTING))
-        connectionTestJobs[providerId] = viewModelScope.launch {
-            val trustAll = settings.value.trustAllHttpsCertificates
-            val result = runCatching {
-                providerModelsApi.testConnection(provider, trustAll)
-            }
-            if (!isActive) return@launch
-            connectionTestManager.setState(
-                providerId,
-                result.fold(
-                    onSuccess = { testResult ->
-                        if (testResult.success) {
-                            ConnectionTestState(
-                                status = ConnectionTestStatus.SUCCESS,
-                                latencyMs = testResult.latencyMs
-                            )
-                        } else {
-                            ConnectionTestState(
-                                status = ConnectionTestStatus.FAILED,
-                                latencyMs = testResult.latencyMs,
-                                errorMessage = testResult.errorMessage
-                            )
-                        }
-                    },
-                    onFailure = { error ->
-                        val message = when (error.message) {
-                            "请先登录 The Kirari Network" -> "请先登录"
-                            else -> error.message ?: "连接测试失败"
-                        }
-                        ConnectionTestState(
-                            status = ConnectionTestStatus.FAILED,
-                            errorMessage = message
-                        )
-                    }
-                )
-            )
-        }
+        providerRuntimeController.testProviderConnection(provider)
     }
 
     fun resetConnectionTest(providerId: String) {
-        connectionTestJobs[providerId]?.cancel()
-        connectionTestJobs.remove(providerId)
-        connectionTestManager.reset(providerId)
+        providerRuntimeController.resetConnectionTest(providerId)
     }
 
     fun loadProviderMeta(provider: ModelProviderConfig) {
-        providerMetaJob?.cancel()
-        val kirariAuth = settings.value.kirari.auth
-        if (
-            provider.id == KIRARI_PROVIDER_ID &&
-            kirariAuth.accessToken.isBlank() &&
-            kirariAuth.refreshToken.isBlank()
-        ) {
-            _providerMetaState.value = ProviderMetaState()
-            return
-        }
-        _providerMetaState.value = ProviderMetaState(loading = true)
-        providerMetaJob = viewModelScope.launch {
-            val trustAll = settings.value.trustAllHttpsCertificates
-            if (provider.id == KIRARI_PROVIDER_ID) {
-                syncKirariSessionStatus(force = true)
-            }
-            val result = runCatching {
-                providerModelsApi.getCatalog(provider, trustAll)
-            }
-            if (!isActive) return@launch
-            _providerMetaState.value = result.fold(
-                onSuccess = { catalog ->
-                    ProviderMetaState(
-                        loading = false,
-                        models = catalog.models,
-                        usageSummary = catalog.usageSummary
-                    )
-                },
-                onFailure = { error ->
-                    if (provider.id == KIRARI_PROVIDER_ID) {
-                        syncKirariSessionStatus(force = true)
-                    }
-                    ProviderMetaState(
-                        loading = false,
-                        errorMessage = error.message ?: "加载提供方信息失败"
-                    )
-                }
-            )
-        }
+        providerRuntimeController.loadProviderMeta(provider)
     }
 
     fun resetProviderMeta() {
-        providerMetaJob?.cancel()
-        providerMetaJob = null
-        _providerMetaState.value = ProviderMetaState()
+        providerRuntimeController.resetProviderMeta()
     }
 
     fun shouldSuggestKirariAutoSetup(settings: AppSettings, providerMetaState: ProviderMetaState): Boolean {
