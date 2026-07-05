@@ -108,6 +108,10 @@ val ProviderKind.requestPathSuffix: String
 
 fun ModelProviderConfig.requestPreviewUrl(): String = "${baseUrl.trimEnd('/')}${kind.requestPathSuffix}"
 
+fun creatableProviderKinds(): List<ProviderKind> = ProviderKind.entries.filterNot { it == ProviderKind.KIRARI_NETWORK }
+
+fun isProtectedKirariProvider(providerId: String): Boolean = providerId == KIRARI_PROVIDER_ID
+
 @Serializable
 data class AssistantPreset(
     val id: String = UUID.randomUUID().toString(),

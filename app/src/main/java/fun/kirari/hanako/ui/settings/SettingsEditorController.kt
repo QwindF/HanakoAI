@@ -16,11 +16,14 @@ import `fun`.kirari.hanako.data.ScreenCaptureMethod
 import `fun`.kirari.hanako.data.SettingsRepository
 import `fun`.kirari.hanako.data.WebSearchSettings
 import `fun`.kirari.hanako.data.availableProviders
+import `fun`.kirari.hanako.data.creatableProviderKinds
 import `fun`.kirari.hanako.data.defaultAssistant
 import `fun`.kirari.hanako.data.defaultProvider
+import `fun`.kirari.hanako.data.isProtectedKirariProvider
 import `fun`.kirari.hanako.data.modelSelectionFor
 import `fun`.kirari.hanako.data.toKirariModelTag
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.llm.core.ProviderKind
 import `fun`.kirari.llm.core.RemoteModelOption
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
@@ -35,11 +38,19 @@ internal class SettingsEditorController(
     private val tag = "HanakoSettingsEditor"
 
     fun updateProvider(provider: ModelProviderConfig) {
-        if (provider.id == KIRARI_PROVIDER_ID) return
+        if (isProtectedKirariProvider(provider.id)) return
+        val sanitizedProvider = if (provider.kind in creatableProviderKinds()) {
+            provider
+        } else {
+            provider.copy(
+                kind = ProviderKind.OPENAI_COMPATIBLE,
+                baseUrl = "https://api.openai.com/v1"
+            )
+        }
         scope.launch {
             repository.update { current ->
                 current.copy(
-                    providers = current.providers.map { if (it.id == provider.id) provider else it }
+                    providers = current.providers.map { if (it.id == provider.id) sanitizedProvider else it }
                 )
             }
         }
@@ -64,7 +75,7 @@ internal class SettingsEditorController(
     }
 
     fun deleteProvider(providerId: String) {
-        if (providerId == KIRARI_PROVIDER_ID) return
+        if (isProtectedKirariProvider(providerId)) return
         scope.launch {
             repository.update { current ->
                 val remaining = current.providers.filterNot { it.id == providerId }

@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.data.ModelProviderConfig
+import `fun`.kirari.hanako.data.creatableProviderKinds
 import `fun`.kirari.hanako.data.displayName
 import `fun`.kirari.hanako.data.parseImportedProviderConfig
 import `fun`.kirari.hanako.data.requestPreviewUrl
@@ -109,6 +110,11 @@ fun ProviderEditor(
 
         ProviderTypeSelector(
             kind = provider.kind,
+            availableKinds = if (provider.kind == ProviderKind.KIRARI_NETWORK) {
+                ProviderKind.entries.toList()
+            } else {
+                creatableProviderKinds()
+            },
             enabled = !readOnly,
             onChange = { nextKind ->
                 onChange(provider.copy(kind = nextKind))
@@ -161,6 +167,7 @@ fun ProviderEditor(
 @Composable
 private fun ProviderTypeSelector(
     kind: ProviderKind,
+    availableKinds: List<ProviderKind>,
     enabled: Boolean,
     onChange: (ProviderKind) -> Unit
 ) {
@@ -191,7 +198,7 @@ private fun ProviderTypeSelector(
             onDismissRequest = { expanded = false },
             modifier = Modifier.heightIn(max = 320.dp)
         ) {
-            ProviderKind.entries.forEach { item ->
+            availableKinds.forEach { item ->
                 DropdownMenuItem(
                     text = { Text(item.displayName) },
                     onClick = {

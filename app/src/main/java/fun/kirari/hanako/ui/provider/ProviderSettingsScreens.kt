@@ -42,6 +42,7 @@ import `fun`.kirari.hanako.data.KIRARI_PROVIDER_ID
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.data.displayName
+import `fun`.kirari.hanako.data.isProtectedKirariProvider
 import `fun`.kirari.hanako.ui.ROUTE_SETTINGS_PROVIDER
 import `fun`.kirari.hanako.ui.RegisterScrollToTopHandler
 import kotlinx.coroutines.launch
@@ -190,7 +191,7 @@ private fun ProviderListItem(
         modifier = Modifier.combinedClickable(
             onClick = { onOpenProvider(provider.id) },
             onLongClick = {
-                if (provider.id != KIRARI_PROVIDER_ID) {
+                if (!isProtectedKirariProvider(provider.id)) {
                     onRequestDelete(provider.id)
                 }
             }
