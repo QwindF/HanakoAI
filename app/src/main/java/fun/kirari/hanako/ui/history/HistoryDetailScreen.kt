@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
@@ -30,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,11 +49,15 @@ import `fun`.kirari.hanako.data.latestAnswerText
 import `fun`.kirari.hanako.data.decodeHistoryBitmap
 import `fun`.kirari.hanako.data.loadHistoryBitmap
 import `fun`.kirari.hanako.overlay.text.MarkdownLatexText
+import `fun`.kirari.hanako.ui.ARG_HISTORY_ID
+import `fun`.kirari.hanako.ui.ROUTE_HANAKO_HISTORY_DETAIL
+import `fun`.kirari.hanako.ui.RegisterScrollToTopHandler
 import `fun`.kirari.hanako.ui.answer.AnswerActionBar
 import `fun`.kirari.hanako.ui.answer.AnswerSwitchDirection
 import `fun`.kirari.hanako.ui.answer.AnimatedAnswerVersionContent
 import `fun`.kirari.hanako.ui.image.ImagePreviewOverlay
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @Composable
 fun HistoryDetailScreen(
@@ -78,6 +84,8 @@ fun HistoryDetailScreen(
     val context = LocalContext.current
     var previewImageIndex by remember { mutableStateOf(-1) }
     var imageBounds by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     var currentVersionIndex by remember(result.id, answerVersions.size) {
         mutableStateOf((answerVersions.size - 1).coerceAtLeast(0))
     }
@@ -89,9 +97,15 @@ fun HistoryDetailScreen(
                 ?: answerVersions.lastIndex
         }
     }
+    RegisterScrollToTopHandler(route = "$ROUTE_HANAKO_HISTORY_DETAIL/{$ARG_HISTORY_ID}") {
+        coroutineScope.launch {
+            listState.animateScrollToItem(0)
+        }
+    }
     val displayedAnswer = answerVersions.getOrNull(currentVersionIndex)?.text ?: result.latestAnswerText()
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)

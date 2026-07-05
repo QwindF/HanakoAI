@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
@@ -27,6 +28,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +42,9 @@ import `fun`.kirari.hanako.data.KIRARI_PROVIDER_ID
 import `fun`.kirari.hanako.data.ModelProviderConfig
 import `fun`.kirari.hanako.data.availableProviders
 import `fun`.kirari.hanako.data.displayName
+import `fun`.kirari.hanako.ui.ROUTE_SETTINGS_PROVIDER
+import `fun`.kirari.hanako.ui.RegisterScrollToTopHandler
+import kotlinx.coroutines.launch
 
 @Composable
 fun ProviderSettingsScreen(
@@ -49,8 +54,16 @@ fun ProviderSettingsScreen(
     onOpenProvider: (String) -> Unit
 ) {
     var deleteTargetId by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    RegisterScrollToTopHandler(route = ROUTE_SETTINGS_PROVIDER) {
+        coroutineScope.launch {
+            listState.animateScrollToItem(0)
+        }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)

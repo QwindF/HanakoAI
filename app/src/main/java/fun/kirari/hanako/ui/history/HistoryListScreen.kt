@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -31,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,7 +45,10 @@ import `fun`.kirari.hanako.data.AppSettings
 import `fun`.kirari.hanako.data.ProcessingResult
 import `fun`.kirari.hanako.data.decodeHistoryBitmap
 import `fun`.kirari.hanako.data.loadHistoryBitmap
+import `fun`.kirari.hanako.ui.ROUTE_HANAKO_HISTORY
+import `fun`.kirari.hanako.ui.RegisterScrollToTopHandler
 import `fun`.kirari.hanako.ui.components.SectionCard
+import kotlinx.coroutines.launch
 
 @Composable
 fun HistorySubScreen(
@@ -54,11 +59,19 @@ fun HistorySubScreen(
     onOpenHistoryDetail: (String) -> Unit
 ) {
     var deleteTargetId by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
     val historyStorageText = remember(history) {
         formatHistorySize(historyStorageBytes(history))
     }
+    RegisterScrollToTopHandler(route = ROUTE_HANAKO_HISTORY) {
+        coroutineScope.launch {
+            listState.animateScrollToItem(0)
+        }
+    }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)

@@ -34,6 +34,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,6 +58,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
@@ -106,11 +108,13 @@ fun HanakoApp(viewModel: MainViewModel) {
     val lifecycleOwner = LocalLifecycleOwner.current
     var modelSelectionDialogState by remember { mutableStateOf(ModelSelectionDialogState()) }
     val providerModelsApi = remember { HanakoApplication.instance.container.providerModelsApi }
+    val scrollToTopController = rememberScrollToTopController()
 
     var currentScreen by rememberSaveable { mutableStateOf(Screen.Hanako) }
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
+    val topBarScrollToTopEnabled = scrollToTopController.canScrollToTop(currentRoute)
 
     LaunchedEffect(kirariAuthMessage) {
         val message = kirariAuthMessage ?: return@LaunchedEffect
@@ -161,6 +165,11 @@ fun HanakoApp(viewModel: MainViewModel) {
         Scaffold(
             topBar = {
                 CenterAlignedTopAppBar(
+                    modifier = if (topBarScrollToTopEnabled) {
+                        Modifier.clickable { scrollToTopController.scrollToTop(currentRoute) }
+                    } else {
+                        Modifier
+                    },
                     title = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -211,122 +220,123 @@ fun HanakoApp(viewModel: MainViewModel) {
             },
             containerColor = Color.Transparent
         ) { padding ->
-            NavHost(
-                navController = navController,
-                startDestination = ROUTE_HOME_SHELL,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface)
-                    .padding(padding),
-                enterTransition = {
-                    slideInHorizontally { it } + fadeIn()
-                },
-                exitTransition = {
-                    slideOutHorizontally { -it / 2 } + fadeOut()
-                },
-                popEnterTransition = {
-                    slideInHorizontally { -it / 2 } + fadeIn()
-                },
-                popExitTransition = {
-                    slideOutHorizontally { it }
-                }
-            ) {
-                composable(ROUTE_HOME_SHELL) {
-                    MainShellScreen(
-                        currentScreen = currentScreen,
-                        onScreenChange = { currentScreen = it },
-                        hanakoContent = {
-                            HanakoHomeScreen(
-                                settings = settings,
-                                overlayEnabled = overlayEnabled,
-                                hasOverlayPermission = hasOverlayPermission,
-                                onOpenOverlayPermission = {
-                                    context.startActivity(
-                                        Intent(
-                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                            Uri.parse("package:${context.packageName}")
-                                        )
-                                    )
-                                },
-                                onToggleOverlay = { enabled ->
-                                    if (enabled) {
-                                        when (
-                                            val result = ScreenCaptureManager.requestStart(
-                                                context = context,
-                                                method = settings.screenCaptureMethod,
-                                                launchMode = OverlayLaunchMode.NORMAL
+            CompositionLocalProvider(LocalScrollToTopController provides scrollToTopController) {
+                NavHost(
+                    navController = navController,
+                    startDestination = ROUTE_HOME_SHELL,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface)
+                        .padding(padding),
+                    enterTransition = {
+                        slideInHorizontally { it } + fadeIn()
+                    },
+                    exitTransition = {
+                        slideOutHorizontally { -it / 2 } + fadeOut()
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally { -it / 2 } + fadeIn()
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally { it }
+                    }
+                ) {
+                    composable(ROUTE_HOME_SHELL) {
+                        MainShellScreen(
+                            currentScreen = currentScreen,
+                            onScreenChange = { currentScreen = it },
+                            hanakoContent = {
+                                HanakoHomeScreen(
+                                    settings = settings,
+                                    overlayEnabled = overlayEnabled,
+                                    hasOverlayPermission = hasOverlayPermission,
+                                    onOpenOverlayPermission = {
+                                        context.startActivity(
+                                            Intent(
+                                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                                Uri.parse("package:${context.packageName}")
                                             )
-                                        ) {
-                                            ScreenCaptureStartResult.Started -> Unit
-                                            is ScreenCaptureStartResult.UserActionRequired -> {
-                                                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                        )
+                                    },
+                                    onToggleOverlay = { enabled ->
+                                        if (enabled) {
+                                            when (
+                                                val result = ScreenCaptureManager.requestStart(
+                                                    context = context,
+                                                    method = settings.screenCaptureMethod,
+                                                    launchMode = OverlayLaunchMode.NORMAL
+                                                )
+                                            ) {
+                                                ScreenCaptureStartResult.Started -> Unit
+                                                is ScreenCaptureStartResult.UserActionRequired -> {
+                                                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                                }
+                                                is ScreenCaptureStartResult.Failed -> {
+                                                    Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
+                                                }
                                             }
-                                            is ScreenCaptureStartResult.Failed -> {
-                                                Toast.makeText(context, result.message, Toast.LENGTH_SHORT).show()
-                                            }
+                                        } else {
+                                            context.stopService(Intent(context, OverlayService::class.java))
+                                            ScreenCaptureManager.stop(context, settings.screenCaptureMethod)
                                         }
-                                    } else {
-                                        context.stopService(Intent(context, OverlayService::class.java))
-                                        ScreenCaptureManager.stop(context, settings.screenCaptureMethod)
-                                    }
-                                },
-                                onSelectRoute = viewModel::setRoute,
-                                onOpenHistory = { navController.navigate(ROUTE_HANAKO_HISTORY) }
-                            )
-                        },
-                        settingsContent = {
-                            SettingsMenuScreen(
-                                onNavigateProvider = { navController.navigate(ROUTE_SETTINGS_PROVIDER) },
-                                onNavigateModel = { navController.navigate(ROUTE_SETTINGS_MODEL) },
-                                onNavigateWebSearch = { navController.navigate(ROUTE_SETTINGS_WEB_SEARCH) },
-                                onNavigateAssistant = { navController.navigate(ROUTE_SETTINGS_ASSISTANT) },
-                                onNavigateMore = { navController.navigate(ROUTE_SETTINGS_MORE) },
-                                onNavigateDebugLogs = { navController.navigate(ROUTE_SETTINGS_DEBUG_LOGS) }
-                            )
-                        }
-                    )
-                }
-                composable(ROUTE_HANAKO_HISTORY) {
-                    val mergedHistory by viewModel.mergedHistory.collectAsState()
-                    HistorySubScreen(
-                        settings = settings,
-                        history = mergedHistory,
-                        onClearHistory = viewModel::clearHistory,
-                        onDeleteHistoryItem = viewModel::deleteHistoryItem,
-                        onOpenHistoryDetail = { resultId ->
-                            navController.navigate(historyDetailRoute(resultId))
-                        }
-                    )
-                }
-                composable("$ROUTE_HANAKO_HISTORY_DETAIL/{$ARG_HISTORY_ID}") { entry ->
-                    val resultId = entry.arguments?.getString(ARG_HISTORY_ID)
-                    val liveWorkflowResults by viewModel.liveWorkflowResults.collectAsState()
-                    val mergedHistory by viewModel.mergedHistory.collectAsState()
-                    val result = liveWorkflowResults[resultId] ?: mergedHistory.firstOrNull { it.id == resultId }
-                    val runningHistoryTasks by viewModel.runningHistoryTasks.collectAsState()
-                    val runningTask = resultId?.let { runningHistoryTasks[it] }
-                    HistoryDetailScreen(
-                        result = result,
-                        regenerating = runningTask != null,
-                        runningAnswerVersionIndex = runningTask?.answerVersionIndex,
-                        onRegenerate = { viewModel.regenerateHistoryResult(it.id) }
-                    )
-                }
-                composable(ROUTE_SETTINGS_PROVIDER) {
-                    ProviderSettingsScreen(
-                        settings = settings,
-                        onAddProvider = viewModel::addProvider,
-                        onDeleteProvider = viewModel::deleteProvider,
-                        onOpenProvider = { providerId ->
-                            viewModel.selectProvider(providerId)
-                            navController.navigate(providerDetailRoute(providerId))
-                        }
-                    )
-                }
-                composable("$ROUTE_SETTINGS_PROVIDER_DETAIL/{$ARG_PROVIDER_ID}") { entry ->
-                    val providerId = entry.arguments?.getString(ARG_PROVIDER_ID)
-                    val provider = settings.availableProviders().firstOrNull { it.id == providerId }
-                    if (provider != null) {
+                                    },
+                                    onSelectRoute = viewModel::setRoute,
+                                    onOpenHistory = { navController.navigate(ROUTE_HANAKO_HISTORY) }
+                                )
+                            },
+                            settingsContent = {
+                                SettingsMenuScreen(
+                                    onNavigateProvider = { navController.navigate(ROUTE_SETTINGS_PROVIDER) },
+                                    onNavigateModel = { navController.navigate(ROUTE_SETTINGS_MODEL) },
+                                    onNavigateWebSearch = { navController.navigate(ROUTE_SETTINGS_WEB_SEARCH) },
+                                    onNavigateAssistant = { navController.navigate(ROUTE_SETTINGS_ASSISTANT) },
+                                    onNavigateMore = { navController.navigate(ROUTE_SETTINGS_MORE) },
+                                    onNavigateDebugLogs = { navController.navigate(ROUTE_SETTINGS_DEBUG_LOGS) }
+                                )
+                            }
+                        )
+                    }
+                    composable(ROUTE_HANAKO_HISTORY) {
+                        val mergedHistory by viewModel.mergedHistory.collectAsState()
+                        HistorySubScreen(
+                            settings = settings,
+                            history = mergedHistory,
+                            onClearHistory = viewModel::clearHistory,
+                            onDeleteHistoryItem = viewModel::deleteHistoryItem,
+                            onOpenHistoryDetail = { resultId ->
+                                navController.navigate(historyDetailRoute(resultId))
+                            }
+                        )
+                    }
+                    composable(ROUTE_HANAKO_HISTORY_DETAIL_PATTERN) { entry ->
+                        val resultId = entry.arguments?.getString(ARG_HISTORY_ID)
+                        val liveWorkflowResults by viewModel.liveWorkflowResults.collectAsState()
+                        val mergedHistory by viewModel.mergedHistory.collectAsState()
+                        val result = liveWorkflowResults[resultId] ?: mergedHistory.firstOrNull { it.id == resultId }
+                        val runningHistoryTasks by viewModel.runningHistoryTasks.collectAsState()
+                        val runningTask = resultId?.let { runningHistoryTasks[it] }
+                        HistoryDetailScreen(
+                            result = result,
+                            regenerating = runningTask != null,
+                            runningAnswerVersionIndex = runningTask?.answerVersionIndex,
+                            onRegenerate = { viewModel.regenerateHistoryResult(it.id) }
+                        )
+                    }
+                    composable(ROUTE_SETTINGS_PROVIDER) {
+                        ProviderSettingsScreen(
+                            settings = settings,
+                            onAddProvider = viewModel::addProvider,
+                            onDeleteProvider = viewModel::deleteProvider,
+                            onOpenProvider = { providerId ->
+                                viewModel.selectProvider(providerId)
+                                navController.navigate(providerDetailRoute(providerId))
+                            }
+                        )
+                    }
+                    composable(ROUTE_SETTINGS_PROVIDER_DETAIL_PATTERN) { entry ->
+                        val providerId = entry.arguments?.getString(ARG_PROVIDER_ID)
+                        val provider = settings.availableProviders().firstOrNull { it.id == providerId }
+                        if (provider != null) {
                         val connectionTestStates by viewModel.connectionTestManager.states.collectAsState()
                         val connectionTestState = connectionTestStates[provider.id] ?: ConnectionTestState()
                         val providerMetaState by viewModel.providerMetaState.collectAsState()
@@ -361,120 +371,121 @@ fun HanakoApp(viewModel: MainViewModel) {
                     } else {
                         LaunchedEffect(Unit) { navController.popBackStack() }
                     }
-                }
-                composable(ROUTE_SETTINGS_MODEL) {
-                    ModelSettingsScreen(
-                        settings = settings,
-                        onPickModel = {
-                            modelSelectionDialogState = modelSelectionDialogState.copy(
-                                providerPickerTarget = it
-                            )
-                        }
-                    )
-                }
-                composable(ROUTE_SETTINGS_WEB_SEARCH) {
-                    val webSearchQuotaState by viewModel.webSearchQuotaState.collectAsState()
-                    WebSearchSettingsScreen(
-                        webSearchSettings = settings.webSearch,
-                        webSearchQuotaState = webSearchQuotaState,
-                        onUpdateWebSearchSettings = { transform ->
-                            viewModel.updateWebSearchSettings(transform)
-                        },
-                        onQueryWebSearchQuota = viewModel::queryWebSearchQuota,
-                        onResetWebSearchQuotaState = viewModel::resetWebSearchQuotaState
-                    )
-                }
-                composable(ROUTE_SETTINGS_ASSISTANT) {
-                    AssistantSettingsScreen(
-                        settings = settings,
-                        onAddAssistant = viewModel::addAssistant,
-                        onDeleteAssistant = viewModel::deleteAssistant,
-                        onSelectAssistant = viewModel::selectAssistant,
-                        onOpenAssistant = { assistantId ->
-                            navController.navigate(assistantDetailRoute(assistantId))
-                        }
-                    )
-                }
-                composable("$ROUTE_SETTINGS_ASSISTANT_DETAIL/{$ARG_ASSISTANT_ID}") { entry ->
-                    val assistantId = entry.arguments?.getString(ARG_ASSISTANT_ID)
-                    val assistant = settings.assistants.firstOrNull { it.id == assistantId }
-                    if (assistant != null) {
-                        AssistantDetailScreen(
-                            assistant = assistant,
-                            onUpdateAssistant = viewModel::updateAssistant
-                        )
-                    } else {
-                        LaunchedEffect(Unit) { navController.popBackStack() }
                     }
-                }
-                composable(ROUTE_SETTINGS_MORE) {
-                    MoreSettingsScreen(
-                        automationSettings = settings.automation,
-                        selectedMethod = settings.screenCaptureMethod,
-                        trustAllHttpsCertificates = settings.trustAllHttpsCertificates,
-                        kirariSettings = settings.kirari,
-                        hasKirariClientId = viewModel.hasKirariClientId(),
-                        hasNotificationPermission = hasNotificationPermission,
-                        onToggleCompletionNotification = { enabled ->
-                            viewModel.updateAutomationSettings {
-                                it.copy(completionNotificationEnabled = enabled)
-                            }
-                        },
-                        onOpenNotificationPermission = {
-                            val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                            runCatching {
-                                context.startActivity(intent)
-                            }.onFailure {
-                                context.startActivity(
-                                    Intent(
-                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                        Uri.parse("package:${context.packageName}")
-                                    )
+                    composable(ROUTE_SETTINGS_MODEL) {
+                        ModelSettingsScreen(
+                            settings = settings,
+                            onPickModel = {
+                                modelSelectionDialogState = modelSelectionDialogState.copy(
+                                    providerPickerTarget = it
                                 )
                             }
-                        },
-                        onToggleStaticMode = { enabled ->
-                            viewModel.updateAutomationSettings {
-                                it.copy(staticModeEnabled = enabled)
+                        )
+                    }
+                    composable(ROUTE_SETTINGS_WEB_SEARCH) {
+                        val webSearchQuotaState by viewModel.webSearchQuotaState.collectAsState()
+                        WebSearchSettingsScreen(
+                            webSearchSettings = settings.webSearch,
+                            webSearchQuotaState = webSearchQuotaState,
+                            onUpdateWebSearchSettings = { transform ->
+                                viewModel.updateWebSearchSettings(transform)
+                            },
+                            onQueryWebSearchQuota = viewModel::queryWebSearchQuota,
+                            onResetWebSearchQuotaState = viewModel::resetWebSearchQuotaState
+                        )
+                    }
+                    composable(ROUTE_SETTINGS_ASSISTANT) {
+                        AssistantSettingsScreen(
+                            settings = settings,
+                            onAddAssistant = viewModel::addAssistant,
+                            onDeleteAssistant = viewModel::deleteAssistant,
+                            onSelectAssistant = viewModel::selectAssistant,
+                            onOpenAssistant = { assistantId ->
+                                navController.navigate(assistantDetailRoute(assistantId))
                             }
-                        },
-                        onNavigateStaticVibrationSettings = { navController.navigate(ROUTE_SETTINGS_STATIC_VIBRATION) },
-                        onUpdateAutomationSettings = { automationSettings ->
-                            viewModel.updateAutomationSettings { automationSettings }
-                        },
-                        onSelectMethod = viewModel::setScreenCaptureMethod,
-                        onUpdateTimeoutSeconds = { seconds ->
-                            viewModel.updateAutomationSettings {
-                                it.copy(autoModeTimeoutSeconds = seconds)
-                            }
-                        },
-                        onToggleTrustAllHttpsCertificates = viewModel::setTrustAllHttpsCertificates,
-                        onUpdateKirariServerUrl = { serverUrl ->
-                            viewModel.updateKirariSettings { it.copy(serverUrl = serverUrl.trim()) }
-                        },
-                        onLoginKirari = {
-                            viewModel.startKirariLogin { authorizationUrl ->
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl))
-                                )
-                            }
-                        },
-                        onLogoutKirari = viewModel::logoutKirari
-                    )
-                }
-                composable(ROUTE_SETTINGS_STATIC_VIBRATION) {
-                    StaticVibrationSettingsScreen(
-                        automationSettings = settings.automation,
-                        onUpdateSettings = { transform ->
-                            viewModel.updateAutomationSettings(transform)
+                        )
+                    }
+                    composable(ROUTE_SETTINGS_ASSISTANT_DETAIL_PATTERN) { entry ->
+                        val assistantId = entry.arguments?.getString(ARG_ASSISTANT_ID)
+                        val assistant = settings.assistants.firstOrNull { it.id == assistantId }
+                        if (assistant != null) {
+                            AssistantDetailScreen(
+                                assistant = assistant,
+                                onUpdateAssistant = viewModel::updateAssistant
+                            )
+                        } else {
+                            LaunchedEffect(Unit) { navController.popBackStack() }
                         }
-                    )
-                }
-                composable(ROUTE_SETTINGS_DEBUG_LOGS) {
-                    DebugLogScreen(
-                        onClearLogs = viewModel::clearDebugLogs
-                    )
+                    }
+                    composable(ROUTE_SETTINGS_MORE) {
+                        MoreSettingsScreen(
+                            automationSettings = settings.automation,
+                            selectedMethod = settings.screenCaptureMethod,
+                            trustAllHttpsCertificates = settings.trustAllHttpsCertificates,
+                            kirariSettings = settings.kirari,
+                            hasKirariClientId = viewModel.hasKirariClientId(),
+                            hasNotificationPermission = hasNotificationPermission,
+                            onToggleCompletionNotification = { enabled ->
+                                viewModel.updateAutomationSettings {
+                                    it.copy(completionNotificationEnabled = enabled)
+                                }
+                            },
+                            onOpenNotificationPermission = {
+                                val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                runCatching {
+                                    context.startActivity(intent)
+                                }.onFailure {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
+                                    )
+                                }
+                            },
+                            onToggleStaticMode = { enabled ->
+                                viewModel.updateAutomationSettings {
+                                    it.copy(staticModeEnabled = enabled)
+                                }
+                            },
+                            onNavigateStaticVibrationSettings = { navController.navigate(ROUTE_SETTINGS_STATIC_VIBRATION) },
+                            onUpdateAutomationSettings = { automationSettings ->
+                                viewModel.updateAutomationSettings { automationSettings }
+                            },
+                            onSelectMethod = viewModel::setScreenCaptureMethod,
+                            onUpdateTimeoutSeconds = { seconds ->
+                                viewModel.updateAutomationSettings {
+                                    it.copy(autoModeTimeoutSeconds = seconds)
+                                }
+                            },
+                            onToggleTrustAllHttpsCertificates = viewModel::setTrustAllHttpsCertificates,
+                            onUpdateKirariServerUrl = { serverUrl ->
+                                viewModel.updateKirariSettings { it.copy(serverUrl = serverUrl.trim()) }
+                            },
+                            onLoginKirari = {
+                                viewModel.startKirariLogin { authorizationUrl ->
+                                    context.startActivity(
+                                        Intent(Intent.ACTION_VIEW, Uri.parse(authorizationUrl))
+                                    )
+                                }
+                            },
+                            onLogoutKirari = viewModel::logoutKirari
+                        )
+                    }
+                    composable(ROUTE_SETTINGS_STATIC_VIBRATION) {
+                        StaticVibrationSettingsScreen(
+                            automationSettings = settings.automation,
+                            onUpdateSettings = { transform ->
+                                viewModel.updateAutomationSettings(transform)
+                            }
+                        )
+                    }
+                    composable(ROUTE_SETTINGS_DEBUG_LOGS) {
+                        DebugLogScreen(
+                            onClearLogs = viewModel::clearDebugLogs
+                        )
+                    }
                 }
             }
         }
