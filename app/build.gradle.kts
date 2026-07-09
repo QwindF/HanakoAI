@@ -199,6 +199,7 @@ dependencies {
     implementation(libs.jlatexmath.font.cyrillic)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    implementation(libs.hiddenapibypass)
     "fullImplementation"(libs.mlkit.text.recognition.chinese)
     testImplementation(libs.junit)
     testImplementation(libs.mockwebserver)

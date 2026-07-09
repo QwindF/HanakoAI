@@ -1,6 +1,7 @@
 package `fun`.kirari.hanako
 
 import android.app.Application
+import `fun`.kirari.hanako.overlay.AntiScreenshotHelper
 import ru.noties.jlatexmath.JLatexMathAndroid
 
 class HanakoApplication : Application() {
@@ -9,6 +10,7 @@ class HanakoApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AntiScreenshotHelper.initialize()
         JLatexMathAndroid.init(this)
         container = AppContainer(applicationContext)
         instance = this
