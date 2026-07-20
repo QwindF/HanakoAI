@@ -162,7 +162,8 @@ data class AutomationSettings(
     val staticIntraLetterGapMs: Int = 400,
     val staticInterLetterGapMs: Int = 1000,
     val bubbleMenuEnabled: Boolean = true,
-    val bubbleAppearance: BubbleAppearanceSettings = BubbleAppearanceSettings()
+    val bubbleAppearance: BubbleAppearanceSettings = BubbleAppearanceSettings(),
+    val skipScreenshotEnabled: Boolean = false
 )
 
 @Serializable

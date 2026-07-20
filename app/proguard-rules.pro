@@ -40,3 +40,7 @@
 -keep class fun.kirari.hanako.capture.IShizukuShellService { *; }
 -keep class fun.kirari.hanako.capture.IShizukuShellService$Stub { *; }
 -keep class fun.kirari.hanako.capture.IShizukuShellService$Stub$Proxy { *; }
+
+# LSPosed HiddenApiBypass - relies on Unsafe and reflection, must not be obfuscated
+-keep class org.lsposed.hiddenapibypass.** { *; }
+-dontwarn org.lsposed.hiddenapibypass.**

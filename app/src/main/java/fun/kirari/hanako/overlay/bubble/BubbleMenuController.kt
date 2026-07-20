@@ -17,6 +17,7 @@ import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import `fun`.kirari.hanako.automation.BubbleMenuItem
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.hanako.overlay.AntiScreenshotHelper
 import `fun`.kirari.hanako.overlay.service.overlayWindowType
 import `fun`.kirari.hanako.ui.theme.HanakoTheme
 
@@ -85,6 +86,7 @@ internal class BubbleMenuController(
         menuView = composeView
         runCatching {
             windowManager.addView(composeView, params)
+            AntiScreenshotHelper.applyTo(composeView)
         }.onFailure { error ->
             AppDebugLogStore.e(logTag, "show: failed to add view", error)
             menuView = null

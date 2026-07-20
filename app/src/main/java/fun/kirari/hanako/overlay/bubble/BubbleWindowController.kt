@@ -23,6 +23,7 @@ import `fun`.kirari.hanako.automation.BubbleRenderer
 import `fun`.kirari.hanako.automation.BubbleState
 import `fun`.kirari.hanako.data.BubbleAppearanceSettings
 import `fun`.kirari.hanako.debug.AppDebugLogStore
+import `fun`.kirari.hanako.overlay.AntiScreenshotHelper
 import `fun`.kirari.hanako.overlay.service.overlayWindowType
 import kotlin.math.roundToInt
 
@@ -124,6 +125,7 @@ internal class BubbleWindowController(
         this.countView = countView
         currentParams = params
         windowManager.addView(view, params)
+        AntiScreenshotHelper.applyTo(view)
         bubbleView = view
         update(BubbleState.Idle, OverlayLaunchMode.NORMAL)
     }

@@ -29,6 +29,7 @@ import androidx.lifecycle.setViewTreeViewModelStoreOwner
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import `fun`.kirari.hanako.easeOutCubic
+import `fun`.kirari.hanako.overlay.AntiScreenshotHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -94,6 +95,8 @@ internal class PanelWindowController(
             panelHandleView = handleView
             windowManager.addView(panelRoot, params)
             windowManager.addView(handleView, handleParams)
+            AntiScreenshotHelper.applyTo(panelRoot)
+            AntiScreenshotHelper.applyTo(handleView)
             applyPanelHeight(panelCurrentHeightPx)
             animatePanelHeight(
                 fromHeightPx = panelCurrentHeightPx,
