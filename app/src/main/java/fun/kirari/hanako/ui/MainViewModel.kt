@@ -33,6 +33,7 @@ import `fun`.kirari.hanako.data.WebSearchSettings
 import `fun`.kirari.hanako.localocr.LocalOcrManager
 import `fun`.kirari.hanako.ui.history.HistoryWorkflowController
 import `fun`.kirari.hanako.ui.history.RunningHistoryTaskUiState
+import `fun`.kirari.hanako.ui.history.HistoryChatRequestState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -55,7 +56,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         repository = repository,
         settings = settings,
         processingPipeline = container.workflow.pipeline,
-        workflowTaskManager = container.workflow.taskManager
+        workflowTaskManager = container.workflow.taskManager,
+        unifiedLLMClient = container.unifiedLLMClient
     )
     val runningHistoryTasks: StateFlow<Map<String, RunningHistoryTaskUiState>> =
         historyWorkflowController.runningHistoryTasks
@@ -63,6 +65,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         historyWorkflowController.liveWorkflowResults
     val mergedHistory: StateFlow<List<ProcessingResult>> =
         historyWorkflowController.mergedHistory
+    val historyChatRequestStates: StateFlow<Map<String, HistoryChatRequestState>> =
+        historyWorkflowController.chatRequestStates
     private val providerRuntimeController = ProviderRuntimeController(
         scope = viewModelScope,
         settings = settings,
@@ -234,6 +238,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun regenerateHistoryResult(resultId: String) {
         historyWorkflowController.regenerateHistoryResult(resultId)
+    }
+
+    fun sendHistoryFollowUp(resultId: String, prompt: String) {
+        historyWorkflowController.sendHistoryFollowUp(resultId, prompt)
+    }
+
+    fun retryHistoryFollowUp(resultId: String, turnIndex: Int) {
+        historyWorkflowController.retryHistoryFollowUp(resultId, turnIndex)
     }
 
     fun testProviderConnection(provider: ModelProviderConfig) {

@@ -315,11 +315,20 @@ fun HanakoApp(viewModel: MainViewModel) {
                         val result = liveWorkflowResults[resultId] ?: mergedHistory.firstOrNull { it.id == resultId }
                         val runningHistoryTasks by viewModel.runningHistoryTasks.collectAsState()
                         val runningTask = resultId?.let { runningHistoryTasks[it] }
+                        val chatRequestStates by viewModel.historyChatRequestStates.collectAsState()
+                        val chatState = resultId?.let { chatRequestStates[it] }
                         HistoryDetailScreen(
                             result = result,
                             regenerating = runningTask != null,
+                            chatSending = chatState?.sending == true,
                             runningAnswerVersionIndex = runningTask?.answerVersionIndex,
-                            onRegenerate = { viewModel.regenerateHistoryResult(it.id) }
+                            onRegenerate = { viewModel.regenerateHistoryResult(it.id) },
+                            onSendFollowUp = { prompt ->
+                                resultId?.let { viewModel.sendHistoryFollowUp(it, prompt) }
+                            },
+                            onRetryFollowUp = { turnIndex ->
+                                resultId?.let { viewModel.retryHistoryFollowUp(it, turnIndex) }
+                            }
                         )
                     }
                     composable(ROUTE_SETTINGS_PROVIDER) {

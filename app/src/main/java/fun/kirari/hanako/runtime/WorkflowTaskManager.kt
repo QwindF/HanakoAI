@@ -337,6 +337,17 @@ internal class WorkflowTaskManager(
         return resultStore.mergedWith(persisted)
     }
 
+    suspend fun latestHistoryResult(historyId: String): ProcessingResult? {
+        return resultStore.latest(historyId)
+    }
+
+    suspend fun updateHistoryResult(
+        historyId: String,
+        transform: (ProcessingResult) -> ProcessingResult
+    ): ProcessingResult? {
+        return resultStore.update(historyId, transform)
+    }
+
     private fun failureResult(base: ProcessingResult, error: Throwable): ProcessingResult {
         val isTimeout = error is TimeoutCancellationException
         val message = error.message?.ifBlank { null } ?: if (isTimeout) "请求超时（90 秒）" else "处理失败"

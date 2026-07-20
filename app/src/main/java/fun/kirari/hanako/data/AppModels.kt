@@ -228,6 +228,7 @@ data class ProcessingResult(
     val extractedText: String = "",
     val answer: String = "",
     val answerVersions: List<AnswerVersion> = emptyList(),
+    val followUpTurns: List<FollowUpTurn> = emptyList(),
     val automationThought: String = "",
     val automationAction: AutomationActionRecord? = null,
     val screenshotBase64: String? = null,
@@ -242,6 +243,17 @@ data class ProcessingResult(
             screenshotPath?.let { listOf(it) } ?: emptyList()
         }
 }
+
+@Serializable
+data class FollowUpTurn(
+    val id: String = UUID.randomUUID().toString(),
+    val userText: String,
+    val assistantText: String = "",
+    val modelSummary: String = "",
+    val completed: Boolean = false,
+    val errorMessage: String? = null,
+    val createdAtMillis: Long = System.currentTimeMillis()
+)
 
 @Serializable
 data class AnswerVersion(

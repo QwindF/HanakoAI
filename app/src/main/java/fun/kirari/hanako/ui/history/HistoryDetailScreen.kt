@@ -6,14 +6,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -21,8 +25,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -36,10 +46,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import `fun`.kirari.hanako.copyToClipboardWithToast
 import `fun`.kirari.hanako.data.ProcessingResult
@@ -63,8 +77,11 @@ import kotlinx.coroutines.launch
 fun HistoryDetailScreen(
     result: ProcessingResult?,
     regenerating: Boolean = false,
+    chatSending: Boolean = false,
     runningAnswerVersionIndex: Int? = null,
-    onRegenerate: ((ProcessingResult) -> Unit)? = null
+    onRegenerate: ((ProcessingResult) -> Unit)? = null,
+    onSendFollowUp: ((String) -> Unit)? = null,
+    onRetryFollowUp: ((Int) -> Unit)? = null
 ) {
     if (result == null) {
         MissingHistoryDetail()
@@ -90,6 +107,9 @@ fun HistoryDetailScreen(
         mutableStateOf((answerVersions.size - 1).coerceAtLeast(0))
     }
     var switchDirection by remember { mutableStateOf(AnswerSwitchDirection.NONE) }
+    var followUpDraft by remember(result.id) { mutableStateOf("") }
+    var pendingRetryIndex by remember { mutableStateOf<Int?>(null) }
+    var confirmOriginalRegeneration by remember { mutableStateOf(false) }
     LaunchedEffect(regenerating, runningAnswerVersionIndex, answerVersions.size) {
         if (regenerating && answerVersions.isNotEmpty()) {
             currentVersionIndex = runningAnswerVersionIndex
@@ -104,12 +124,13 @@ fun HistoryDetailScreen(
     }
     val displayedAnswer = answerVersions.getOrNull(currentVersionIndex)?.text ?: result.latestAnswerText()
 
-    LazyColumn(
-        state = listState,
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 132.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         item {
             Text(
                 text = formatHistoryDetailHeader(result),
@@ -186,7 +207,7 @@ fun HistoryDetailScreen(
                         AnswerActionBar(
                             versionCount = answerVersions.size,
                             currentVersionIndex = currentVersionIndex,
-                            canRegenerate = onRegenerate != null,
+                            canRegenerate = onRegenerate != null && !chatSending,
                             regenerating = regenerating,
                             onPreviousVersion = {
                                 if (currentVersionIndex > 0) {
@@ -204,7 +225,11 @@ fun HistoryDetailScreen(
                                 copyToClipboardWithToast(context, "Hanako 原始答案", displayedAnswer, "已复制原文")
                             },
                             onRegenerate = {
-                                onRegenerate?.invoke(result)
+                                if (result.followUpTurns.isEmpty()) {
+                                    onRegenerate?.invoke(result)
+                                } else {
+                                    confirmOriginalRegeneration = true
+                                }
                             }
                         )
                     }
@@ -230,7 +255,80 @@ fun HistoryDetailScreen(
                 }
             }
         }
-        item { Spacer(modifier = Modifier.height(80.dp)) }
+        if (result.followUpTurns.isNotEmpty()) {
+            item {
+                Text(
+                    text = "继续对话",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            itemsIndexed(result.followUpTurns, key = { _, turn -> turn.id }) { index, turn ->
+                HistoryChatTurn(
+                    turn = turn,
+                    sending = chatSending && index == result.followUpTurns.lastIndex,
+                    retryEnabled = !chatSending && onRetryFollowUp != null,
+                    onRetry = {
+                        if (index == result.followUpTurns.lastIndex) {
+                            onRetryFollowUp?.invoke(index)
+                        } else {
+                            pendingRetryIndex = index
+                        }
+                    }
+                )
+            }
+        }
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+        }
+
+        HistoryChatComposer(
+            value = followUpDraft,
+            enabled = !chatSending && !regenerating && onSendFollowUp != null,
+            sending = chatSending,
+            onValueChange = { followUpDraft = it },
+            onSend = {
+                val prompt = followUpDraft.trim()
+                if (prompt.isNotBlank()) {
+                    followUpDraft = ""
+                    onSendFollowUp?.invoke(prompt)
+                }
+            },
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
+    }
+
+    pendingRetryIndex?.let { retryIndex ->
+        AlertDialog(
+            onDismissRequest = { pendingRetryIndex = null },
+            title = { Text("重新生成这轮回答？") },
+            text = { Text("这会删除该轮之后的所有对话，然后使用当前模型配置重新回答。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingRetryIndex = null
+                    onRetryFollowUp?.invoke(retryIndex)
+                }) { Text("删除并重试") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRetryIndex = null }) { Text("取消") }
+            }
+        )
+    }
+
+    if (confirmOriginalRegeneration) {
+        AlertDialog(
+            onDismissRequest = { confirmOriginalRegeneration = false },
+            title = { Text("重新生成首轮回答？") },
+            text = { Text("这会删除全部后续对话，然后使用当前模型配置重新生成首轮答案。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmOriginalRegeneration = false
+                    onRegenerate?.invoke(result)
+                }) { Text("删除并重试") }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmOriginalRegeneration = false }) { Text("取消") }
+            }
+        )
     }
 
     if (previewImageIndex >= 0 && previewImageIndex < screenshots.size) {
@@ -241,6 +339,134 @@ fun HistoryDetailScreen(
             onDismiss = { previewImageIndex = -1 },
             sourceBounds = imageBounds
         )
+    }
+}
+
+@Composable
+private fun HistoryChatTurn(
+    turn: `fun`.kirari.hanako.data.FollowUpTurn,
+    sending: Boolean,
+    retryEnabled: Boolean,
+    onRetry: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier
+                .align(Alignment.End)
+                .widthIn(max = 320.dp)
+        ) {
+            Text(
+                text = turn.userText,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+        Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier
+                .align(Alignment.Start)
+                .fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = turn.modelSummary.ifBlank { "AI" },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    IconButton(
+                        onClick = onRetry,
+                        enabled = retryEnabled,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "重新生成此轮",
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+                if (turn.assistantText.isNotBlank()) {
+                    HistoryMarkdownOrEmpty(turn.assistantText)
+                } else if (sending || !turn.completed) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("正在回答", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                turn.errorMessage?.let { message ->
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryChatComposer(
+    value: String,
+    enabled: Boolean,
+    sending: Boolean,
+    onValueChange: (String) -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .imePadding(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 6.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .navigationBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.Bottom
+        ) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = onValueChange,
+                enabled = enabled,
+                placeholder = { Text("继续提问") },
+                modifier = Modifier.weight(1f),
+                maxLines = 5,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                keyboardActions = KeyboardActions(onSend = { onSend() })
+            )
+            IconButton(
+                onClick = onSend,
+                enabled = enabled && value.isNotBlank(),
+                modifier = Modifier.size(48.dp)
+            ) {
+                if (sending) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
+                }
+            }
+        }
     }
 }
 
