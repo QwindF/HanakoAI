@@ -11,8 +11,11 @@ import `fun`.kirari.hanako.core.model.ProcessingResult
 import `fun`.kirari.hanako.core.model.ProcessingRoute
 import `fun`.kirari.hanako.core.model.ProcessingStatus
 import `fun`.kirari.hanako.core.model.FollowUpTurn
+import `fun`.kirari.hanako.core.model.displayedAssistantVersions
+import `fun`.kirari.hanako.core.model.latestAssistantText
 import `fun`.kirari.hanako.solve.model.WorkflowTaskKind
 import `fun`.kirari.hanako.solve.model.WorkflowTaskStatus
+import `fun`.kirari.hanako.solve.model.ConversationIntent
 import `fun`.kirari.hanako.core.data.WebSearchSettings
 import `fun`.kirari.hanako.core.data.defaultAssistant
 import `fun`.kirari.hanako.core.data.defaultProvider
@@ -52,14 +55,15 @@ class WorkflowTaskManagerTest {
         harness.manager.startConversationTask(
             existingResult = existing,
             models = testModels(),
-            prompt = "why?"
+            intent = ConversationIntent.NewTurn("why?")
         )
         advanceUntilIdle()
 
         val completed = harness.resultStore.liveResults.value.getValue("history-1")
         assertEquals(1, completed.followUpTurns.size)
         assertEquals("why?", completed.followUpTurns.single().userText)
-        assertEquals("follow up", completed.followUpTurns.single().assistantText)
+        assertEquals("follow up", completed.followUpTurns.single().latestAssistantText())
+        assertEquals(listOf("follow up"), completed.followUpTurns.single().assistantVersions.map { it.text })
         assertTrue(completed.followUpTurns.single().completed)
         val task = harness.manager.tasks.value.values.single()
         assertEquals(WorkflowTaskKind.CONVERSATION, task.kind)
@@ -76,24 +80,24 @@ class WorkflowTaskManagerTest {
         harness.manager.startConversationTask(
             existingResult = existing,
             models = testModels(),
-            prompt = "why?"
+            intent = ConversationIntent.NewTurn("why?")
         )
         runCurrent()
 
         val persistedTurn = harness.repository.settings.history.single().followUpTurns.single()
-        assertEquals("persisted answer", persistedTurn.assistantText)
+        assertEquals("persisted answer", persistedTurn.latestAssistantText())
+        assertEquals(listOf("persisted answer"), persistedTurn.assistantVersions.map { it.text })
         assertTrue(persistedTurn.completed)
         assertEquals(WorkflowTaskStatus.SUCCESS, harness.manager.tasks.value.values.single().status)
     }
 
     @Test
-    fun conversationRetry_replacesSelectedTurnAndDropsLaterTurns() = runTest {
+    fun conversationRetry_preservesLatestTurnVersions() = runTest {
         val harness = ManagerHarness(testScope = TestScope(testScheduler))
         val existing = testProcessingResult(id = "history-1", answer = "initial").copy(
             followUpTurns = listOf(
                 FollowUpTurn(userText = "first", assistantText = "one", completed = true),
-                FollowUpTurn(userText = "retry me", errorMessage = "failed", completed = true),
-                FollowUpTurn(userText = "stale", assistantText = "stale", completed = true)
+                FollowUpTurn(userText = "retry me", assistantText = "old answer", completed = true)
             )
         )
         harness.conversation.deltas = listOf("recovered")
@@ -101,14 +105,14 @@ class WorkflowTaskManagerTest {
         harness.manager.startConversationTask(
             existingResult = existing,
             models = testModels(),
-            prompt = "retry me",
-            retryIndex = 1
+            intent = ConversationIntent.RegenerateLatest
         )
         advanceUntilIdle()
 
         val turns = harness.resultStore.liveResults.value.getValue("history-1").followUpTurns
         assertEquals(listOf("first", "retry me"), turns.map { it.userText })
-        assertEquals("recovered", turns.last().assistantText)
+        assertEquals("recovered", turns.last().latestAssistantText())
+        assertEquals(listOf("old answer", "recovered"), turns.last().assistantVersions.map { it.text })
     }
 
     @Test
@@ -414,12 +418,13 @@ class WorkflowTaskManagerTest {
     fun cancelConversationTask_completesPendingTurnWithCancellationError() = runTest {
         val harness = ManagerHarness(testScope = TestScope(testScheduler))
         val existing = testProcessingResult(id = "history-1", answer = "initial")
+        harness.conversation.deltas = listOf("partial")
         harness.conversation.gate = CompletableDeferred()
 
         val taskId = harness.manager.startConversationTask(
             existingResult = existing,
             models = testModels(),
-            prompt = "why?"
+            intent = ConversationIntent.NewTurn("why?")
         )
         runCurrent()
         harness.manager.cancelTask(taskId)
@@ -427,6 +432,7 @@ class WorkflowTaskManagerTest {
 
         val turn = harness.resultStore.liveResults.value.getValue(existing.id).followUpTurns.single()
         assertTrue(turn.completed)
+        assertEquals("", turn.pendingAssistantText)
         assertEquals("请求已取消", turn.errorMessage)
         assertTrue(harness.repository.settings.history.single().followUpTurns.single().completed)
     }
@@ -435,7 +441,7 @@ class WorkflowTaskManagerTest {
     fun reconcileInterruptedTasks_marksPersistedTransientStatesAsTerminal() = runTest {
         val running = testProcessingResult(id = "running").copy(
             status = ProcessingStatus.RUNNING,
-            followUpTurns = listOf(FollowUpTurn(userText = "pending"))
+            followUpTurns = listOf(FollowUpTurn(userText = "pending", pendingAssistantText = "partial"))
         )
         val completed = testProcessingResult(id = "completed").copy(
             status = ProcessingStatus.SUCCESS,
@@ -456,6 +462,7 @@ class WorkflowTaskManagerTest {
         assertEquals(ProcessingStatus.ERROR, reconciledRunning.status)
         assertEquals("应用进程中断，任务未能完成", reconciledRunning.detail)
         assertTrue(reconciledRunning.followUpTurns.single().completed)
+        assertEquals("", reconciledRunning.followUpTurns.single().pendingAssistantText)
         assertEquals("应用进程中断，任务未能完成", reconciledRunning.followUpTurns.single().errorMessage)
         assertEquals(ProcessingStatus.SUCCESS, reconciledCompleted.status)
         assertTrue(reconciledCompleted.followUpTurns.single().completed)
@@ -494,13 +501,26 @@ private class FakeConversationWorkflow : ConversationWorkflowEngine {
     override suspend fun prepareTurn(
         existingResult: ProcessingResult,
         models: ProcessingPipeline.ResolvedModels,
-        prompt: String,
-        retryIndex: Int?,
+        intent: ConversationIntent,
         turnId: String
     ): PreparedConversationTurn {
-        val retainedTurns = retryIndex?.let(existingResult.followUpTurns::take) ?: existingResult.followUpTurns
+        val (prompt, retainedTurns, retainedVersions) = when (intent) {
+            is ConversationIntent.NewTurn -> Triple(intent.prompt, existingResult.followUpTurns, emptyList())
+            ConversationIntent.RegenerateLatest -> {
+                val retriedTurn = existingResult.followUpTurns.last()
+                Triple(
+                    retriedTurn.userText,
+                    existingResult.followUpTurns.dropLast(1),
+                    retriedTurn.displayedAssistantVersions()
+                )
+            }
+        }
         val started = existingResult.copy(
-            followUpTurns = retainedTurns + FollowUpTurn(id = turnId, userText = prompt)
+            followUpTurns = retainedTurns + FollowUpTurn(
+                id = turnId,
+                userText = prompt,
+                assistantVersions = retainedVersions
+            )
         )
         return PreparedConversationTurn(
             historyId = existingResult.id,

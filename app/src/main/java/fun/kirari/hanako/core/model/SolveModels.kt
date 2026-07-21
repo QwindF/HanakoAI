@@ -42,6 +42,8 @@ data class FollowUpTurn(
     val id: String = UUID.randomUUID().toString(),
     val userText: String,
     val assistantText: String = "",
+    val assistantVersions: List<AnswerVersion> = emptyList(),
+    val pendingAssistantText: String = "",
     val modelSummary: String = "",
     val completed: Boolean = false,
     val errorMessage: String? = null,
@@ -121,4 +123,41 @@ fun ProcessingResult.withMergedAnswerVersionsFrom(previous: ProcessingResult): P
     val mergedVersions = previous.displayedAnswerVersions().toMutableList()
     answer.takeIf(String::isNotBlank)?.let { mergedVersions += AnswerVersion(it) }
     return copy(answerVersions = mergedVersions)
+}
+
+fun FollowUpTurn.displayedAssistantVersions(): List<AnswerVersion> {
+    return assistantVersions.ifEmpty {
+        assistantText.takeIf(String::isNotBlank)?.let(::AnswerVersion)?.let(::listOf) ?: emptyList()
+    }
+}
+
+fun FollowUpTurn.latestAssistantText(): String {
+    return displayedAssistantVersions().lastOrNull()?.text ?: assistantText
+}
+
+fun FollowUpTurn.currentAssistantText(): String {
+    return pendingAssistantText.ifBlank { latestAssistantText() }
+}
+
+fun FollowUpTurn.withStreamingAssistantText(text: String): FollowUpTurn {
+    return copy(pendingAssistantText = text)
+}
+
+fun FollowUpTurn.withCommittedAssistantVersion(): FollowUpTurn {
+    val versions = assistantVersions.toMutableList()
+    if (pendingAssistantText.isNotBlank()) versions += AnswerVersion(pendingAssistantText)
+    return copy(
+        assistantVersions = versions,
+        pendingAssistantText = "",
+        completed = true,
+        errorMessage = null
+    )
+}
+
+fun FollowUpTurn.withAssistantError(message: String): FollowUpTurn {
+    return copy(
+        pendingAssistantText = "",
+        completed = true,
+        errorMessage = message
+    )
 }

@@ -13,7 +13,7 @@ import `fun`.kirari.hanako.feature.settings.ui.model.ModelSelectionDialogs
 import `fun`.kirari.hanako.feature.settings.ui.model.ModelSettingsScreen
 import `fun`.kirari.hanako.feature.settings.presentation.ConnectionTestState
 import `fun`.kirari.hanako.core.data.ModelPurpose
-import `fun`.kirari.hanako.core.data.modelSelectionFor
+import `fun`.kirari.hanako.feature.history.presentation.HistoryDetailOperation
 import `fun`.kirari.hanako.feature.home.presentation.LocalScrollToTopController
 import `fun`.kirari.hanako.feature.home.presentation.rememberScrollToTopController
 import `fun`.kirari.hanako.feature.settings.ui.provider.GenericProviderDetailScreen
@@ -329,36 +329,18 @@ fun HanakoApp(viewModel: AppViewModel) {
                     }
                     composable(ROUTE_HANAKO_HISTORY_DETAIL_PATTERN) { entry ->
                         val resultId = entry.arguments?.getString(ARG_HISTORY_ID)
-                        val liveWorkflowResults by viewModel.liveWorkflowResults.collectAsState()
-                        val mergedHistory by viewModel.mergedHistory.collectAsState()
-                        val result = liveWorkflowResults[resultId] ?: mergedHistory.firstOrNull { it.id == resultId }
-                        val runningHistoryTasks by viewModel.runningHistoryTasks.collectAsState()
-                        val runningTask = resultId?.let { runningHistoryTasks[it] }
-                        val chatRequestStates by viewModel.historyChatRequestStates.collectAsState()
-                        val chatState = resultId?.let { chatRequestStates[it] }
-                        val conversationModelSelections by
-                            viewModel.historyConversationModelSelections.collectAsState()
-                        val conversationModelPurpose = when (result?.route) {
-                            `fun`.kirari.hanako.core.model.ProcessingRoute.OCR_THEN_LLM -> ModelPurpose.TEXT
-                            `fun`.kirari.hanako.core.model.ProcessingRoute.MULTIMODAL_DIRECT -> ModelPurpose.VISION
-                            null -> null
-                        }
-                        val conversationModelSelection = resultId?.let(conversationModelSelections::get)
-                            ?: conversationModelPurpose?.let(settings::modelSelectionFor)
-                        val conversationModelLabel = conversationModelSelection?.model
-                            ?.takeIf(String::isNotBlank)
-                            ?: when (conversationModelPurpose) {
-                                ModelPurpose.TEXT -> "选择文本模型"
-                                ModelPurpose.VISION -> "选择多模态模型"
-                                else -> "选择模型"
-                            }
+                        val detailStates by viewModel.historyDetailStates.collectAsState()
+                        val detailState = resultId?.let(detailStates::get)
+                        val operation = detailState?.operation
+                        val conversationModelPurpose = detailState?.conversationModelPurpose
                         HistoryDetailScreen(
                             scrollRoute = ROUTE_HANAKO_HISTORY_DETAIL_PATTERN,
-                            result = result,
-                            regenerating = runningTask != null,
-                            chatSending = chatState?.sending == true,
-                            runningAnswerVersionIndex = runningTask?.answerVersionIndex,
-                            conversationModelLabel = conversationModelLabel,
+                            result = detailState?.result,
+                            regenerating = operation is HistoryDetailOperation.RegeneratingInitialAnswer,
+                            chatSending = operation is HistoryDetailOperation.SendingFollowUp,
+                            runningAnswerVersionIndex =
+                                (operation as? HistoryDetailOperation.RegeneratingInitialAnswer)?.answerVersionIndex,
+                            conversationModelLabel = detailState?.conversationModelLabel ?: "选择模型",
                             onRegenerate = { viewModel.regenerateHistoryResult(it.id) },
                             onSendFollowUp = { prompt ->
                                 resultId?.let { viewModel.sendHistoryFollowUp(it, prompt) }
@@ -371,8 +353,8 @@ fun HanakoApp(viewModel: AppViewModel) {
                                     )
                                 }
                             },
-                            onRetryFollowUp = { turnIndex ->
-                                resultId?.let { viewModel.retryHistoryFollowUp(it, turnIndex) }
+                            onRetryFollowUp = {
+                                resultId?.let { viewModel.retryLatestHistoryFollowUp(it) }
                             }
                         )
                     }

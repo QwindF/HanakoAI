@@ -32,8 +32,7 @@ import `fun`.kirari.hanako.core.data.KirariSettings
 import `fun`.kirari.hanako.core.data.WebSearchSettings
 import `fun`.kirari.hanako.platform.capture.ocr.LocalOcrManager
 import `fun`.kirari.hanako.feature.history.presentation.HistoryWorkflowController
-import `fun`.kirari.hanako.feature.history.presentation.RunningHistoryTaskUiState
-import `fun`.kirari.hanako.feature.history.presentation.HistoryChatRequestState
+import `fun`.kirari.hanako.feature.history.presentation.HistoryDetailUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -56,16 +55,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         settings = settings,
         solveOperations = container.workflow.operations
     )
-    val runningHistoryTasks: StateFlow<Map<String, RunningHistoryTaskUiState>> =
-        historyWorkflowController.runningHistoryTasks
-    val liveWorkflowResults: StateFlow<Map<String, ProcessingResult>> =
-        historyWorkflowController.liveWorkflowResults
+    val historyDetailStates: StateFlow<Map<String, HistoryDetailUiState>> =
+        historyWorkflowController.historyDetailStates
     val mergedHistory: StateFlow<List<ProcessingResult>> =
         historyWorkflowController.mergedHistory
-    val historyChatRequestStates: StateFlow<Map<String, HistoryChatRequestState>> =
-        historyWorkflowController.chatRequestStates
-    val historyConversationModelSelections: StateFlow<Map<String, ModelSelection>> =
-        historyWorkflowController.conversationModelSelections
     private val providerRuntimeController = ProviderRuntimeController(
         scope = viewModelScope,
         settings = settings,
@@ -252,8 +245,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         historyWorkflowController.sendHistoryFollowUp(resultId, prompt)
     }
 
-    fun retryHistoryFollowUp(resultId: String, turnIndex: Int) {
-        historyWorkflowController.retryHistoryFollowUp(resultId, turnIndex)
+    fun retryLatestHistoryFollowUp(resultId: String) {
+        historyWorkflowController.retryLatestHistoryFollowUp(resultId)
     }
 
     fun testProviderConnection(provider: ModelProviderConfig) {

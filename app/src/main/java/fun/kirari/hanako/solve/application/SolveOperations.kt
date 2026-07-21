@@ -7,6 +7,7 @@ import `fun`.kirari.hanako.core.model.ProcessingResult
 import `fun`.kirari.hanako.solve.model.WorkflowTaskState
 import `fun`.kirari.hanako.solve.model.WorkflowTaskKind
 import `fun`.kirari.hanako.solve.model.WorkflowTaskStatus
+import `fun`.kirari.hanako.solve.model.ConversationIntent
 import `fun`.kirari.hanako.core.model.loadHistoryBitmaps
 import `fun`.kirari.hanako.solve.runtime.WorkflowTaskManager
 import `fun`.kirari.hanako.solve.workflow.ProcessingPipeline
@@ -95,24 +96,44 @@ internal class SolveOperations(
         settings: AppSettings,
         historyId: String,
         prompt: String,
-        retryIndex: Int? = null,
         modelSelection: ModelSelection? = null
+    ) {
+        startConversation(settings, historyId, ConversationIntent.NewTurn(prompt), modelSelection)
+    }
+
+    suspend fun retryLatestConversation(
+        settings: AppSettings,
+        historyId: String,
+        modelSelection: ModelSelection? = null
+    ) {
+        startConversation(settings, historyId, ConversationIntent.RegenerateLatest, modelSelection)
+    }
+
+    private suspend fun startConversation(
+        settings: AppSettings,
+        historyId: String,
+        intent: ConversationIntent,
+        modelSelection: ModelSelection?
     ) {
         val existing = taskManager.latestHistoryResult(historyId) ?: return
         if (taskManager.isRunning(historyId)) return
-        val normalizedPrompt = if (retryIndex == null) {
-            prompt.trim()
-        } else {
-            existing.followUpTurns.getOrNull(retryIndex)?.userText.orEmpty().trim()
+        val normalizedIntent = when (intent) {
+            is ConversationIntent.NewTurn -> {
+                val prompt = intent.prompt.trim()
+                if (prompt.isBlank()) return
+                ConversationIntent.NewTurn(prompt)
+            }
+            ConversationIntent.RegenerateLatest -> {
+                if (existing.followUpTurns.isEmpty()) return
+                ConversationIntent.RegenerateLatest
+            }
         }
-        if (normalizedPrompt.isBlank()) return
         val conversationSettings = settings.withConversationModel(existing.route, modelSelection)
         val models = resolveModels(conversationSettings, historyId)?.copy(route = existing.route) ?: return
         taskManager.startConversationTask(
             existingResult = existing,
             models = models,
-            prompt = normalizedPrompt,
-            retryIndex = retryIndex
+            intent = normalizedIntent
         )
     }
 

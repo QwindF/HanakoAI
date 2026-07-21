@@ -6,7 +6,10 @@ import `fun`.kirari.hanako.core.model.FollowUpTurn
 import `fun`.kirari.hanako.core.model.ProcessingResult
 import `fun`.kirari.hanako.core.model.ProcessingRoute
 import `fun`.kirari.hanako.core.model.latestAnswerText
+import `fun`.kirari.hanako.core.model.displayedAssistantVersions
+import `fun`.kirari.hanako.core.model.latestAssistantText
 import `fun`.kirari.hanako.core.model.loadHistoryBitmaps
+import `fun`.kirari.hanako.solve.model.ConversationIntent
 import `fun`.kirari.llm.core.ChatMessage
 import `fun`.kirari.llm.core.LlmEvent
 
@@ -25,8 +28,7 @@ internal interface ConversationWorkflowEngine {
     suspend fun prepareTurn(
         existingResult: ProcessingResult,
         models: ProcessingPipeline.ResolvedModels,
-        prompt: String,
-        retryIndex: Int?,
+        intent: ConversationIntent,
         turnId: String
     ): PreparedConversationTurn
 
@@ -43,8 +45,7 @@ internal class ConversationWorkflow(
     override suspend fun prepareTurn(
         existingResult: ProcessingResult,
         models: ProcessingPipeline.ResolvedModels,
-        prompt: String,
-        retryIndex: Int?,
+        intent: ConversationIntent,
         turnId: String
     ): PreparedConversationTurn {
         val provider = when (existingResult.route) {
@@ -65,13 +66,26 @@ internal class ConversationWorkflow(
             ProcessingRoute.OCR_THEN_LLM -> models.assistant.textPrompt
             ProcessingRoute.MULTIMODAL_DIRECT -> models.assistant.visionPrompt
         }
-        val retainedTurns = retryIndex?.let { index ->
-            require(index in existingResult.followUpTurns.indices) { "找不到要重试的对话轮次" }
-            existingResult.followUpTurns.take(index)
-        } ?: existingResult.followUpTurns
+        val (prompt, retainedTurns, retainedVersions) = when (intent) {
+            is ConversationIntent.NewTurn -> Triple(
+                intent.prompt,
+                existingResult.followUpTurns,
+                emptyList()
+            )
+            ConversationIntent.RegenerateLatest -> {
+                val latestTurn = existingResult.followUpTurns.lastOrNull()
+                    ?: error("找不到要重试的对话轮次")
+                Triple(
+                    latestTurn.userText,
+                    existingResult.followUpTurns.dropLast(1),
+                    latestTurn.displayedAssistantVersions()
+                )
+            }
+        }
         val pendingTurn = FollowUpTurn(
             id = turnId,
             userText = prompt,
+            assistantVersions = retainedVersions,
             modelSummary = pipeline.buildModelSummary(model, provider.name)
         )
         val started = existingResult.copy(followUpTurns = retainedTurns + pendingTurn)
@@ -136,8 +150,9 @@ internal class ConversationWorkflow(
         messages += textMessage(role = "assistant", text = result.initialAssistantContext())
         result.followUpTurns.forEach { followUp ->
             messages += textMessage(role = "user", text = followUp.userText)
-            if (followUp.completed && followUp.assistantText.isNotBlank() && followUp.errorMessage == null) {
-                messages += textMessage(role = "assistant", text = followUp.assistantText)
+            val assistantText = followUp.latestAssistantText()
+            if (followUp.completed && assistantText.isNotBlank() && followUp.errorMessage == null) {
+                messages += textMessage(role = "assistant", text = assistantText)
             }
         }
         return messages

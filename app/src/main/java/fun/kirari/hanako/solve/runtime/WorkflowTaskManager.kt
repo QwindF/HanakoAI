@@ -2,7 +2,11 @@ package `fun`.kirari.hanako.solve.runtime
 import `fun`.kirari.hanako.solve.model.WorkflowTaskKind
 import `fun`.kirari.hanako.solve.model.WorkflowTaskState
 import `fun`.kirari.hanako.solve.model.WorkflowTaskStatus
+import `fun`.kirari.hanako.solve.model.ConversationIntent
 import `fun`.kirari.hanako.core.model.FollowUpTurn
+import `fun`.kirari.hanako.core.model.withCommittedAssistantVersion
+import `fun`.kirari.hanako.core.model.withStreamingAssistantText
+import `fun`.kirari.hanako.core.model.withAssistantError
 
 import android.graphics.Bitmap
 import `fun`.kirari.hanako.core.model.AnswerVersion
@@ -301,8 +305,7 @@ internal class WorkflowTaskManager(
     fun startConversationTask(
         existingResult: ProcessingResult,
         models: ProcessingPipeline.ResolvedModels,
-        prompt: String,
-        retryIndex: Int? = null
+        intent: ConversationIntent
     ): String {
         val historyId = existingResult.id
         val turnId = java.util.UUID.randomUUID().toString()
@@ -321,8 +324,7 @@ internal class WorkflowTaskManager(
                 val prepared = conversationWorkflow.prepareTurn(
                     existingResult = existingResult,
                     models = models,
-                    prompt = prompt,
-                    retryIndex = retryIndex,
+                    intent = intent,
                     turnId = turnId
                 )
                 startedResult = prepared.startedResult
@@ -333,13 +335,13 @@ internal class WorkflowTaskManager(
                     conversationWorkflow.runTurn(prepared) { delta ->
                         answer.append(delta)
                         resultStore.updateConversationTurn(historyId, turnId) { turn ->
-                            turn.copy(assistantText = answer.toString())
+                            turn.withStreamingAssistantText(answer.toString())
                         }
                     }
                 }
                 require(answer.isNotBlank()) { "模型未返回文本内容" }
                 resultStore.updateConversationTurnNow(historyId, turnId) { turn ->
-                    turn.copy(completed = true, errorMessage = null)
+                    turn.withCommittedAssistantVersion()
                 } ?: error("对话记录已被删除")
             }.onSuccess {
                 AppDebugLogStore.i(tag, "conversation task success taskId=$taskId historyId=$historyId")
@@ -349,7 +351,7 @@ internal class WorkflowTaskManager(
                     withContext(NonCancellable) {
                         startedResult?.let {
                             resultStore.updateConversationTurnNow(historyId, turnId) { turn ->
-                                turn.copy(completed = true, errorMessage = CANCELLATION_MESSAGE)
+                                turn.withAssistantError(CANCELLATION_MESSAGE)
                             }
                         }
                     }
@@ -360,7 +362,7 @@ internal class WorkflowTaskManager(
                 val message = error.message?.takeIf(String::isNotBlank) ?: "请求失败"
                 startedResult?.let {
                     resultStore.updateConversationTurnNow(historyId, turnId) { turn ->
-                        turn.copy(completed = true, errorMessage = message)
+                        turn.withAssistantError(message)
                     }
                 }
                 taskRegistry.mark(taskId, WorkflowTaskStatus.ERROR, message)
@@ -510,7 +512,7 @@ internal class WorkflowTaskManager(
                     task.conversationTurnId == turn.id
             }
             if (!turn.completed && !hasActiveTurn) {
-                turn.copy(completed = true, errorMessage = INTERRUPTION_MESSAGE)
+                turn.withAssistantError(INTERRUPTION_MESSAGE)
             } else {
                 turn
             }

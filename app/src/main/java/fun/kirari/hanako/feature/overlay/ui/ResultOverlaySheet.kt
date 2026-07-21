@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,6 +48,7 @@ import `fun`.kirari.hanako.core.model.latestAnswerText
 import `fun`.kirari.hanako.core.ui.components.AnswerActionBar
 import `fun`.kirari.hanako.core.ui.components.AnswerSwitchDirection
 import `fun`.kirari.hanako.core.ui.components.AnimatedAnswerVersionContent
+import `fun`.kirari.hanako.core.ui.components.ResultContentCard
 
 @Composable
 internal fun ResultOverlaySheet(
@@ -148,7 +148,7 @@ internal fun ResultOverlaySheet(
 
 @Composable
 private fun ResultImageCard(uiState: OverlayUiState) {
-    ResultCard(title = "原图") {
+    ResultContentCard(title = "原图") {
         uiState.selectedBitmap?.let { bitmap ->
             Image(
                 bitmap = bitmap.asImageBitmap(),
@@ -165,7 +165,7 @@ private fun ResultImageCard(uiState: OverlayUiState) {
 @Composable
 private fun OcrResultCard(uiState: OverlayUiState) {
     val context = LocalContext.current
-    ResultCard(
+    ResultContentCard(
         title = "OCR 结果",
         actions = {
             if (!uiState.working && uiState.liveOcrText.isNotBlank()) {
@@ -207,7 +207,7 @@ private fun AnswerResultCard(
     onRegenerate: () -> Unit
 ) {
     val context = LocalContext.current
-    ResultCard(
+    ResultContentCard(
         title = "答案",
         actions = {
             AnswerActionBar(
@@ -247,41 +247,6 @@ private fun AnswerResultCard(
                 )
             }
             else -> Text("暂无内容")
-        }
-    }
-}
-
-@Composable
-private fun ResultCard(
-    title: String,
-    actions: @Composable (RowScope.() -> Unit)? = null,
-    content: @Composable () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
-                if (actions != null) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        content = actions
-                    )
-                }
-            }
-            content()
         }
     }
 }

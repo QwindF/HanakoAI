@@ -5,8 +5,10 @@ import `fun`.kirari.hanako.core.data.defaultAssistant
 import `fun`.kirari.hanako.core.data.defaultProvider
 import `fun`.kirari.hanako.core.network.UnifiedLLMClient
 import `fun`.kirari.hanako.core.model.FollowUpTurn
+import `fun`.kirari.hanako.core.model.AnswerVersion
 import `fun`.kirari.hanako.core.model.ProcessingResult
 import `fun`.kirari.hanako.core.model.ProcessingRoute
+import `fun`.kirari.hanako.solve.model.ConversationIntent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -37,8 +39,7 @@ class ConversationWorkflowTest {
         val prepared = workflow.prepareTurn(
             existingResult = existing,
             models = models(),
-            prompt = "current",
-            retryIndex = null,
+            intent = ConversationIntent.NewTurn("current"),
             turnId = "turn-current"
         )
 
@@ -53,26 +54,34 @@ class ConversationWorkflowTest {
     }
 
     @Test
-    fun prepareTurn_retryKeepsOnlyTurnsBeforeSelectedIndex() = runTest {
+    fun prepareTurn_regeneratesLatestTurnAndKeepsItsVersions() = runTest {
         val existing = baseResult().copy(
             followUpTurns = listOf(
                 FollowUpTurn(userText = "keep", assistantText = "kept answer", completed = true),
-                FollowUpTurn(userText = "retry", errorMessage = "failed", completed = true),
-                FollowUpTurn(userText = "drop", assistantText = "stale", completed = true)
+                FollowUpTurn(
+                    userText = "retry",
+                    assistantText = "legacy answer",
+                    assistantVersions = listOf(AnswerVersion("first answer"), AnswerVersion("second answer")),
+                    completed = true
+                )
             )
         )
 
         val prepared = workflow.prepareTurn(
             existingResult = existing,
             models = models(),
-            prompt = "retry",
-            retryIndex = 1,
+            intent = ConversationIntent.RegenerateLatest,
             turnId = "replacement"
         )
 
         assertEquals(listOf("keep", "retry"), prepared.startedResult.followUpTurns.map { it.userText })
         assertEquals(listOf("system", "user", "assistant", "user", "assistant", "user"), prepared.messages.map { it.role })
         assertEquals("replacement", prepared.startedResult.followUpTurns.last().id)
+        assertEquals(
+            listOf("first answer", "second answer"),
+            prepared.startedResult.followUpTurns.last().assistantVersions.map { it.text }
+        )
+        assertEquals("", prepared.startedResult.followUpTurns.last().assistantText)
         assertEquals("retry", prepared.messages.last().text())
     }
 
