@@ -1,6 +1,6 @@
 package `fun`.kirari.hanako
 
-import `fun`.kirari.hanako.overlay.text.parseMarkdown
+import `fun`.kirari.hanako.core.ui.richtext.parseMarkdown
 import org.junit.Test
 import org.junit.Assert.assertEquals
 
