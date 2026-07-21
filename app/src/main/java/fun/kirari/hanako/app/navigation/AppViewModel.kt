@@ -64,6 +64,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         historyWorkflowController.mergedHistory
     val historyChatRequestStates: StateFlow<Map<String, HistoryChatRequestState>> =
         historyWorkflowController.chatRequestStates
+    val historyConversationModelSelections: StateFlow<Map<String, ModelSelection>> =
+        historyWorkflowController.conversationModelSelections
     private val providerRuntimeController = ProviderRuntimeController(
         scope = viewModelScope,
         settings = settings,
@@ -173,6 +175,19 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun toggleFavoriteModel(providerId: String, modelId: String) =
         settingsEditorController.toggleFavoriteModel(providerId, modelId)
+
+    fun selectHistoryConversationModel(
+        resultId: String,
+        selection: ModelSelection,
+        addToFavorites: Boolean = false
+    ) {
+        historyWorkflowController.selectConversationModel(resultId, selection)
+        if (addToFavorites) {
+            selection.providerId?.let { providerId ->
+                settingsEditorController.addFavoriteModel(providerId, selection.model)
+            }
+        }
+    }
 
     fun removeFavoriteModel(providerId: String, modelId: String) =
         settingsEditorController.removeFavoriteModel(providerId, modelId)

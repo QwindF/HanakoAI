@@ -12,17 +12,24 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+
+internal val HistoryCardShape = RoundedCornerShape(24.dp)
 
 @Composable
 internal fun HistoryResultCard(
     title: String,
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.surfaceContainer,
     action: (@Composable () -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Surface(
-        shape = RoundedCornerShape(24.dp),
-        color = MaterialTheme.colorScheme.surfaceContainer
+        modifier = modifier,
+        shape = HistoryCardShape,
+        color = color
     ) {
         Column(
             modifier = Modifier
@@ -35,7 +42,13 @@ internal fun HistoryResultCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(title, style = MaterialTheme.typography.titleMedium)
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
                 action?.invoke()
             }
             content()

@@ -68,6 +68,25 @@ class WorkflowTaskManagerTest {
     }
 
     @Test
+    fun conversationTask_persistsCompletedTurnBeforeTaskFinishes() = runTest {
+        val harness = ManagerHarness(testScope = TestScope(testScheduler))
+        val existing = testProcessingResult(id = "history-1", answer = "initial")
+        harness.conversation.deltas = listOf("persisted answer")
+
+        harness.manager.startConversationTask(
+            existingResult = existing,
+            models = testModels(),
+            prompt = "why?"
+        )
+        runCurrent()
+
+        val persistedTurn = harness.repository.settings.history.single().followUpTurns.single()
+        assertEquals("persisted answer", persistedTurn.assistantText)
+        assertTrue(persistedTurn.completed)
+        assertEquals(WorkflowTaskStatus.SUCCESS, harness.manager.tasks.value.values.single().status)
+    }
+
+    @Test
     fun conversationRetry_replacesSelectedTurnAndDropsLaterTurns() = runTest {
         val harness = ManagerHarness(testScope = TestScope(testScheduler))
         val existing = testProcessingResult(id = "history-1", answer = "initial").copy(

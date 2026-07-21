@@ -1,12 +1,15 @@
 package `fun`.kirari.hanako.feature.history.presentation
 
 import `fun`.kirari.hanako.core.data.AppSettings
+import `fun`.kirari.hanako.core.data.ModelSelection
 import `fun`.kirari.hanako.core.model.ProcessingResult
 import `fun`.kirari.hanako.solve.application.SolveOperations
 import `fun`.kirari.hanako.solve.model.WorkflowTaskKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -27,6 +30,9 @@ internal class HistoryWorkflowController(
     private val settings: StateFlow<AppSettings>,
     private val solveOperations: SolveOperations
 ) {
+    private val _conversationModelSelections = MutableStateFlow<Map<String, ModelSelection>>(emptyMap())
+    val conversationModelSelections: StateFlow<Map<String, ModelSelection>> =
+        _conversationModelSelections.asStateFlow()
     private val historyState = solveOperations.observeHistory(settings.map { it.history })
         .stateIn(
             scope = scope,
@@ -87,12 +93,14 @@ internal class HistoryWorkflowController(
     )
 
     fun clearHistory() {
+        _conversationModelSelections.value = emptyMap()
         scope.launch {
             solveOperations.clearHistory()
         }
     }
 
     fun deleteHistoryItem(resultId: String) {
+        _conversationModelSelections.value = _conversationModelSelections.value - resultId
         scope.launch {
             solveOperations.removeHistoryResult(resultId)
         }
@@ -106,7 +114,12 @@ internal class HistoryWorkflowController(
 
     fun sendHistoryFollowUp(resultId: String, prompt: String) {
         scope.launch {
-            solveOperations.continueConversation(settings.value, resultId, prompt)
+            solveOperations.continueConversation(
+                settings = settings.value,
+                historyId = resultId,
+                prompt = prompt,
+                modelSelection = _conversationModelSelections.value[resultId]
+            )
         }
     }
 
@@ -116,8 +129,13 @@ internal class HistoryWorkflowController(
                 settings = settings.value,
                 historyId = resultId,
                 prompt = "",
-                retryIndex = turnIndex
+                retryIndex = turnIndex,
+                modelSelection = _conversationModelSelections.value[resultId]
             )
         }
+    }
+
+    fun selectConversationModel(resultId: String, selection: ModelSelection) {
+        _conversationModelSelections.value = _conversationModelSelections.value + (resultId to selection)
     }
 }

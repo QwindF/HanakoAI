@@ -12,6 +12,8 @@ import `fun`.kirari.hanako.feature.settings.ui.model.ModelSelectionDialogState
 import `fun`.kirari.hanako.feature.settings.ui.model.ModelSelectionDialogs
 import `fun`.kirari.hanako.feature.settings.ui.model.ModelSettingsScreen
 import `fun`.kirari.hanako.feature.settings.presentation.ConnectionTestState
+import `fun`.kirari.hanako.core.data.ModelPurpose
+import `fun`.kirari.hanako.core.data.modelSelectionFor
 import `fun`.kirari.hanako.feature.home.presentation.LocalScrollToTopController
 import `fun`.kirari.hanako.feature.home.presentation.rememberScrollToTopController
 import `fun`.kirari.hanako.feature.settings.ui.provider.GenericProviderDetailScreen
@@ -110,8 +112,21 @@ fun HanakoApp(viewModel: AppViewModel) {
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     var modelSelectionDialogState by remember { mutableStateOf(ModelSelectionDialogState()) }
+    var historyModelPickerResultId by rememberSaveable { mutableStateOf<String?>(null) }
     val providerModelsApi = remember { HanakoApplication.instance.container.providerModelsApi }
     val scrollToTopController = rememberScrollToTopController()
+
+    LaunchedEffect(modelSelectionDialogState) {
+        if (
+            historyModelPickerResultId != null &&
+            modelSelectionDialogState.providerPickerTarget == null &&
+            modelSelectionDialogState.modelPickerTarget == null &&
+            modelSelectionDialogState.customModelTarget == null &&
+            modelSelectionDialogState.customModelDialogTitle == null
+        ) {
+            historyModelPickerResultId = null
+        }
+    }
 
     var currentScreen by rememberSaveable { mutableStateOf(Screen.Hanako) }
     val navController = rememberNavController()
@@ -321,15 +336,40 @@ fun HanakoApp(viewModel: AppViewModel) {
                         val runningTask = resultId?.let { runningHistoryTasks[it] }
                         val chatRequestStates by viewModel.historyChatRequestStates.collectAsState()
                         val chatState = resultId?.let { chatRequestStates[it] }
+                        val conversationModelSelections by
+                            viewModel.historyConversationModelSelections.collectAsState()
+                        val conversationModelPurpose = when (result?.route) {
+                            `fun`.kirari.hanako.core.model.ProcessingRoute.OCR_THEN_LLM -> ModelPurpose.TEXT
+                            `fun`.kirari.hanako.core.model.ProcessingRoute.MULTIMODAL_DIRECT -> ModelPurpose.VISION
+                            null -> null
+                        }
+                        val conversationModelSelection = resultId?.let(conversationModelSelections::get)
+                            ?: conversationModelPurpose?.let(settings::modelSelectionFor)
+                        val conversationModelLabel = conversationModelSelection?.model
+                            ?.takeIf(String::isNotBlank)
+                            ?: when (conversationModelPurpose) {
+                                ModelPurpose.TEXT -> "选择文本模型"
+                                ModelPurpose.VISION -> "选择多模态模型"
+                                else -> "选择模型"
+                            }
                         HistoryDetailScreen(
                             scrollRoute = ROUTE_HANAKO_HISTORY_DETAIL_PATTERN,
                             result = result,
                             regenerating = runningTask != null,
                             chatSending = chatState?.sending == true,
                             runningAnswerVersionIndex = runningTask?.answerVersionIndex,
+                            conversationModelLabel = conversationModelLabel,
                             onRegenerate = { viewModel.regenerateHistoryResult(it.id) },
                             onSendFollowUp = { prompt ->
                                 resultId?.let { viewModel.sendHistoryFollowUp(it, prompt) }
+                            },
+                            onSelectConversationModel = {
+                                if (resultId != null && conversationModelPurpose != null) {
+                                    historyModelPickerResultId = resultId
+                                    modelSelectionDialogState = modelSelectionDialogState.copy(
+                                        providerPickerTarget = conversationModelPurpose
+                                    )
+                                }
                             },
                             onRetryFollowUp = { turnIndex ->
                                 resultId?.let { viewModel.retryHistoryFollowUp(it, turnIndex) }
@@ -513,8 +553,28 @@ fun HanakoApp(viewModel: AppViewModel) {
         debugEntries = debugEntries,
         context = context,
         onStateChange = { modelSelectionDialogState = it },
-        onUpdateModelSelection = viewModel::updateModelSelection,
-        onUpdateModelSelectionWithFavorite = viewModel::updateModelSelectionWithFavorite,
+        onUpdateModelSelection = { purpose, selection ->
+            val resultId = historyModelPickerResultId
+            if (resultId != null) {
+                viewModel.selectHistoryConversationModel(resultId, selection)
+                historyModelPickerResultId = null
+            } else {
+                viewModel.updateModelSelection(purpose, selection)
+            }
+        },
+        onUpdateModelSelectionWithFavorite = { purpose, selection, favoriteModel ->
+            val resultId = historyModelPickerResultId
+            if (resultId != null) {
+                viewModel.selectHistoryConversationModel(
+                    resultId = resultId,
+                    selection = selection,
+                    addToFavorites = favoriteModel
+                )
+                historyModelPickerResultId = null
+            } else {
+                viewModel.updateModelSelectionWithFavorite(purpose, selection, favoriteModel)
+            }
+        },
         onToggleFavoriteModel = viewModel::toggleFavoriteModel,
         onSyncLocalOcrInstallation = viewModel::syncLocalOcrInstallation,
         providerModelsApi = providerModelsApi

@@ -73,6 +73,18 @@ class SettingsRepository(private val store: SettingsStore) {
         }
     }
 
+    fun addFavoriteModel(scope: CoroutineScope, providerId: String, modelId: String) {
+        val trimmedModelId = modelId.trim()
+        if (trimmedModelId.isBlank()) return
+        scope.launch {
+            store.update { current ->
+                current.updateProviderFavoriteModels(providerId) { favorites ->
+                    favorites.addIfMissing(trimmedModelId)
+                }
+            }
+        }
+    }
+
     fun selectAssistant(scope: CoroutineScope, assistantId: String) {
         scope.launch {
             store.update { current ->

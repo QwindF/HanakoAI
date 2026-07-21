@@ -1,6 +1,7 @@
 package `fun`.kirari.hanako.solve.application
 
 import `fun`.kirari.hanako.core.data.AppSettings
+import `fun`.kirari.hanako.core.data.ModelSelection
 import `fun`.kirari.hanako.core.debug.AppDebugLogStore
 import `fun`.kirari.hanako.core.model.ProcessingResult
 import `fun`.kirari.hanako.solve.model.WorkflowTaskState
@@ -94,7 +95,8 @@ internal class SolveOperations(
         settings: AppSettings,
         historyId: String,
         prompt: String,
-        retryIndex: Int? = null
+        retryIndex: Int? = null,
+        modelSelection: ModelSelection? = null
     ) {
         val existing = taskManager.latestHistoryResult(historyId) ?: return
         if (taskManager.isRunning(historyId)) return
@@ -104,7 +106,8 @@ internal class SolveOperations(
             existing.followUpTurns.getOrNull(retryIndex)?.userText.orEmpty().trim()
         }
         if (normalizedPrompt.isBlank()) return
-        val models = resolveModels(settings, historyId)?.copy(route = existing.route) ?: return
+        val conversationSettings = settings.withConversationModel(existing.route, modelSelection)
+        val models = resolveModels(conversationSettings, historyId)?.copy(route = existing.route) ?: return
         taskManager.startConversationTask(
             existingResult = existing,
             models = models,
@@ -187,5 +190,18 @@ internal class SolveOperations(
                 AppDebugLogStore.e(tag, "resolve models failed historyId=$historyId", error)
                 null
             }
+    }
+}
+
+internal fun AppSettings.withConversationModel(
+    route: `fun`.kirari.hanako.core.model.ProcessingRoute,
+    selection: ModelSelection?
+): AppSettings {
+    if (selection == null) return this
+    return when (route) {
+        `fun`.kirari.hanako.core.model.ProcessingRoute.OCR_THEN_LLM ->
+            copy(textModelSelection = selection)
+        `fun`.kirari.hanako.core.model.ProcessingRoute.MULTIMODAL_DIRECT ->
+            copy(visionModelSelection = selection)
     }
 }

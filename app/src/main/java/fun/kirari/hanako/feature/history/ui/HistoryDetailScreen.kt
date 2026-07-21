@@ -12,12 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -26,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -67,6 +71,7 @@ import `fun`.kirari.hanako.feature.home.presentation.RegisterScrollToTopHandler
 import `fun`.kirari.hanako.core.ui.components.AnswerActionBar
 import `fun`.kirari.hanako.core.ui.components.AnswerSwitchDirection
 import `fun`.kirari.hanako.core.ui.components.AnimatedAnswerVersionContent
+import `fun`.kirari.hanako.core.ui.components.HanakoTextFieldShape
 import `fun`.kirari.hanako.core.ui.image.ImagePreviewOverlay
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -78,7 +83,9 @@ fun HistoryDetailScreen(
     regenerating: Boolean = false,
     chatSending: Boolean = false,
     runningAnswerVersionIndex: Int? = null,
+    conversationModelLabel: String = "选择模型",
     onRegenerate: ((ProcessingResult) -> Unit)? = null,
+    onSelectConversationModel: (() -> Unit)? = null,
     onSendFollowUp: ((String) -> Unit)? = null,
     onRetryFollowUp: ((Int) -> Unit)? = null
 ) {
@@ -284,6 +291,8 @@ fun HistoryDetailScreen(
             value = followUpDraft,
             enabled = !chatSending && !regenerating && onSendFollowUp != null,
             sending = chatSending,
+            modelLabel = conversationModelLabel,
+            onSelectModel = onSelectConversationModel,
             onValueChange = { followUpDraft = it },
             onSend = {
                 val prompt = followUpDraft.trim()
@@ -348,43 +357,52 @@ private fun HistoryChatTurn(
     retryEnabled: Boolean,
     onRetry: () -> Unit
 ) {
+    val context = LocalContext.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Surface(
-            shape = RoundedCornerShape(8.dp),
+        HistoryResultCard(
+            title = "你",
             color = MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier
                 .align(Alignment.End)
-                .widthIn(max = 320.dp)
+                .widthIn(max = 320.dp),
+            action = {
+                CopyTextButton(
+                    enabled = turn.userText.isNotBlank(),
+                    label = "复制问题",
+                    onClick = {
+                        copyToClipboardWithToast(
+                            context,
+                            "Hanako 追问",
+                            turn.userText,
+                            "已复制问题"
+                        )
+                    }
+                )
+            }
         ) {
             Text(
                 text = turn.userText,
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                 color = MaterialTheme.colorScheme.onPrimaryContainer
             )
         }
-        Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
+        HistoryResultCard(
+            title = turn.modelSummary.ifBlank { "AI" },
             modifier = Modifier
                 .align(Alignment.Start)
-                .fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = turn.modelSummary.ifBlank { "AI" },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                .fillMaxWidth(),
+            action = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    CopyTextButton(
+                        enabled = turn.assistantText.isNotBlank(),
+                        label = "复制回答",
+                        onClick = {
+                            copyToClipboardWithToast(
+                                context,
+                                "Hanako 追问回答",
+                                turn.assistantText,
+                                "已复制回答"
+                            )
+                        }
                     )
                     IconButton(
                         onClick = onRetry,
@@ -398,6 +416,9 @@ private fun HistoryChatTurn(
                         )
                     }
                 }
+            }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (turn.assistantText.isNotBlank()) {
                     HistoryMarkdownOrEmpty(turn.assistantText)
                 } else if (sending || !turn.completed) {
@@ -426,20 +447,21 @@ private fun HistoryChatComposer(
     value: String,
     enabled: Boolean,
     sending: Boolean,
+    modelLabel: String,
+    onSelectModel: (() -> Unit)?,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
         modifier = modifier
-            .fillMaxWidth()
-            .imePadding(),
+            .fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 6.dp
     ) {
         Row(
             modifier = Modifier
-                .navigationBarsPadding()
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.Bottom
@@ -448,9 +470,28 @@ private fun HistoryChatComposer(
                 value = value,
                 onValueChange = onValueChange,
                 enabled = enabled,
+                label = {
+                    Text(
+                        text = modelLabel,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                },
                 placeholder = { Text("继续提问") },
+                leadingIcon = {
+                    IconButton(
+                        onClick = { onSelectModel?.invoke() },
+                        enabled = enabled && onSelectModel != null
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Tune,
+                            contentDescription = "选择会话模型，当前$modelLabel"
+                        )
+                    }
+                },
                 modifier = Modifier.weight(1f),
                 maxLines = 5,
+                shape = HanakoTextFieldShape,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                 keyboardActions = KeyboardActions(onSend = { onSend() })
             )

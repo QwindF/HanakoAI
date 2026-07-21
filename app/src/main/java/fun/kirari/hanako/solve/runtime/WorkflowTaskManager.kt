@@ -338,7 +338,7 @@ internal class WorkflowTaskManager(
                     }
                 }
                 require(answer.isNotBlank()) { "模型未返回文本内容" }
-                resultStore.updateConversationTurn(historyId, turnId) { turn ->
+                resultStore.updateConversationTurnNow(historyId, turnId) { turn ->
                     turn.copy(completed = true, errorMessage = null)
                 } ?: error("对话记录已被删除")
             }.onSuccess {
@@ -348,7 +348,7 @@ internal class WorkflowTaskManager(
                 if (error is CancellationException) {
                     withContext(NonCancellable) {
                         startedResult?.let {
-                            resultStore.updateConversationTurn(historyId, turnId) { turn ->
+                            resultStore.updateConversationTurnNow(historyId, turnId) { turn ->
                                 turn.copy(completed = true, errorMessage = CANCELLATION_MESSAGE)
                             }
                         }
@@ -359,7 +359,7 @@ internal class WorkflowTaskManager(
                 AppDebugLogStore.e(tag, "conversation task failed taskId=$taskId historyId=$historyId", error)
                 val message = error.message?.takeIf(String::isNotBlank) ?: "请求失败"
                 startedResult?.let {
-                    resultStore.updateConversationTurn(historyId, turnId) { turn ->
+                    resultStore.updateConversationTurnNow(historyId, turnId) { turn ->
                         turn.copy(completed = true, errorMessage = message)
                     }
                 }
@@ -549,6 +549,20 @@ private suspend fun WorkflowResultStore.updateConversationTurn(
     transform: (FollowUpTurn) -> FollowUpTurn
 ): ProcessingResult? {
     return update(historyId) { result ->
+        result.copy(
+            followUpTurns = result.followUpTurns.map { turn ->
+                if (turn.id == turnId) transform(turn) else turn
+            }
+        )
+    }
+}
+
+private suspend fun WorkflowResultStore.updateConversationTurnNow(
+    historyId: String,
+    turnId: String,
+    transform: (FollowUpTurn) -> FollowUpTurn
+): ProcessingResult? {
+    return updateNow(historyId) { result ->
         result.copy(
             followUpTurns = result.followUpTurns.map { turn ->
                 if (turn.id == turnId) transform(turn) else turn

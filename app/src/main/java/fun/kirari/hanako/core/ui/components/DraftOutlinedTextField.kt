@@ -1,7 +1,6 @@
 package `fun`.kirari.hanako.core.ui.components
 
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -17,7 +16,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
 @Composable
@@ -78,6 +76,6 @@ fun DraftOutlinedTextField(
         visualTransformation = visualTransformation,
         keyboardOptions = keyboardOptions,
         readOnly = readOnly,
-        shape = RoundedCornerShape(12.dp)
+        shape = HanakoTextFieldShape
     )
 }

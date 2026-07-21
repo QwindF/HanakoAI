@@ -173,6 +173,9 @@ internal class SettingsEditorController(
     fun toggleFavoriteModel(providerId: String, modelId: String) =
         repository.toggleFavoriteModel(scope, providerId, modelId)
 
+    fun addFavoriteModel(providerId: String, modelId: String) =
+        repository.addFavoriteModel(scope, providerId, modelId)
+
     fun removeFavoriteModel(providerId: String, modelId: String) =
         repository.removeFavoriteModel(scope, providerId, modelId)
 
