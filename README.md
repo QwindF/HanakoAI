@@ -2,7 +2,7 @@
 
 Hanako 是一个 Android 悬浮窗 AI 客户端，核心用途是截图识题与快速作答。默认助手提示词偏向搜题场景，也可以在应用内改成翻译、总结、阅读辅助等其他用途。
 
-[[Download 0.0.14-alpha](https://github.com/zyf2007/HanakoAI/releases/download/v0.0.14-alpha/app-lite-arm64-v8a-release.apk)]  [[View Release Notes](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.14-alpha)] [[Telegram](https://t.me/hutao_space)]
+[[Download 0.0.15-alpha](https://github.com/zyf2007/HanakoAI/releases/download/v0.0.15-alpha/app-lite-arm64-v8a-release.apk)]  [[View Release Notes](https://github.com/zyf2007/HanakoAI/releases/tag/v0.0.15-alpha)] [[Telegram](https://t.me/hutao_space)]
 
 Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可能短：
 
@@ -190,7 +190,8 @@ Hanako 把截图、识题、解题、复制/填写这几个步骤压缩到尽可
 
 ## Changelog
 
-- 修复自动模式原始输出展示：不再根据“识别为单选题”等文本伪造工具动作，历史记录保留模型原始输出和真实工具调用结果。
-- 修复 Responses 流式工具调用解析，兼容通过 SSE `event` 标识工具事件的网关线路，避免自动模式在 Kirari 线路下丢失工具调用。
-- 新增自动模式图片 live 测试：生成实际选择题与填空题图片，验证选择题走悬浮球、填空题走剪贴板。
-- 将最低支持系统降到 Android 7.0（API 24），并把 targetSdk 调整为 35，降低新系统兼容策略对悬浮窗/截屏流程的影响。
+- 历史记录支持多轮追问，可在原问题和回答的上下文中继续对话。
+- 完善历史会话的输入与消息持久化，统一追问界面与悬浮窗结果页的交互样式。
+- 新增悬浮窗防截屏/防录屏开关，可避免悬浮球和结果面板出现在截图中（Beta）。
+- 点击页面标题可快速返回顶部，并优化应用模块结构与工作流状态管理。
+- 限制手动创建 The Kirari Network 类型的模型提供方，避免产生无效配置。
