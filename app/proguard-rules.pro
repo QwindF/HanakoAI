@@ -33,13 +33,13 @@
 -keep class ru.noties.jlatexmath.** { *; }
 
 # Shizuku user service is instantiated out-of-process and must keep stable names.
--keep class fun.kirari.hanako.capture.ShizukuShellService {
+-keep class fun.kirari.hanako.platform.capture.shizuku.ShizukuShellService {
     public <init>();
     public *;
 }
--keep class fun.kirari.hanako.capture.IShizukuShellService { *; }
--keep class fun.kirari.hanako.capture.IShizukuShellService$Stub { *; }
--keep class fun.kirari.hanako.capture.IShizukuShellService$Stub$Proxy { *; }
+-keep class fun.kirari.hanako.platform.capture.shizuku.IShizukuShellService { *; }
+-keep class fun.kirari.hanako.platform.capture.shizuku.IShizukuShellService$Stub { *; }
+-keep class fun.kirari.hanako.platform.capture.shizuku.IShizukuShellService$Stub$Proxy { *; }
 
 # LSPosed HiddenApiBypass - relies on Unsafe and reflection, must not be obfuscated
 -keep class org.lsposed.hiddenapibypass.** { *; }

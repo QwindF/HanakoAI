@@ -17,6 +17,7 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.util.DisplayMetrics
+import android.util.Log
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.WindowManager
@@ -111,7 +112,11 @@ internal class PanelWindowController(
 
     fun hideWithAnimation() {
         if (panelClosing) return
-        val view = panelView ?: return
+        val view = panelView
+        if (view == null) {
+            removePanelNow()
+            return
+        }
         panelClosing = true
         animatePanelHeight(
             fromHeightPx = panelCurrentHeightPx,
@@ -314,12 +319,8 @@ internal class PanelWindowController(
     }
 
     private fun removePanelNow() {
-        panelHandleView?.let { view ->
-            runCatching { windowManager.removeView(view) }
-        }
-        panelView?.let { view ->
-            runCatching { windowManager.removeView(view) }
-        }
+        removeWindowImmediately("handle", panelHandleView)
+        removeWindowImmediately("panel", panelView)
         panelHandleView = null
         panelContentView = null
         panelView = null
@@ -327,5 +328,15 @@ internal class PanelWindowController(
         panelParams = null
         panelCurrentHeightPx = 0
         panelClosing = false
+    }
+
+    private fun removeWindowImmediately(name: String, view: android.view.View?) {
+        if (view == null || !view.isAttachedToWindow) return
+        runCatching { windowManager.removeViewImmediate(view) }
+            .onFailure { error -> Log.e(LOG_TAG, "Failed to remove $name window", error) }
+    }
+
+    private companion object {
+        const val LOG_TAG = "HanakoPanelWindow"
     }
 }
